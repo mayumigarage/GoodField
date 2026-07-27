@@ -1,0 +1,3 @@
+[submodule "godfield-flash"]
+	path = godfield-flash
+	url = https://github.com/Igoorx/godfield-flash.git

@@ -1,0 +1,4 @@
+dist/
+.goodfield/
+node_modules/
+.tmp/

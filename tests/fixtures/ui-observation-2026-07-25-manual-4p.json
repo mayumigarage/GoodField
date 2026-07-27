@@ -1,0 +1,32 @@
+{
+  "source": "docs/UI_OBSERVATION_2026-07-25_MANUAL_4P.md",
+  "profileId": "OFFICIAL_WEB_2026_07_25",
+  "expectedStageMs": 1000,
+  "toleranceMs": 120,
+  "sequences": [
+    {
+      "id": "GF31_CPU_ASCENSION",
+      "gfCount": 31,
+      "playerName": "ヤぷタ",
+      "viewerRole": "CPU",
+      "demonShownAtMs": 212634,
+      "centralDamageShownAtMs": 213640,
+      "ascensionShownAtMs": 214641,
+      "hpAfter": 0,
+      "handRemainsVisible": false,
+      "matchResultShown": false
+    },
+    {
+      "id": "GF38_HUMAN_ASCENSION",
+      "gfCount": 38,
+      "playerName": "仕様確認BOT4",
+      "viewerRole": "HUMAN",
+      "demonShownAtMs": 268829,
+      "centralDamageShownAtMs": 269822,
+      "ascensionShownAtMs": 270838,
+      "hpAfter": 0,
+      "handRemainsVisible": true,
+      "matchResultShown": false
+    }
+  ]
+}

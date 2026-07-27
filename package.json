@@ -1,0 +1,33 @@
+{
+  "name": "goodfield",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "generate:card-assets": "node scripts/generate-card-assets.mjs",
+    "generate:cards": "node scripts/generate-card-catalog.mjs",
+    "generate:golden": "node scripts/generate-golden-scenarios.mjs",
+    "check:generated": "node scripts/generate-card-catalog.mjs --check && node scripts/generate-golden-scenarios.mjs --check",
+    "dev": "node scripts/dev.mjs",
+    "build": "tsc -p tsconfig.build.json && node scripts/copy-static.mjs",
+    "start": "node --enable-source-maps dist/packages/server/src/runtime-entry.js",
+    "smoke:start": "node scripts/smoke-built-server.mjs",
+    "test:smoke": "npm run build && npm run smoke:start",
+    "typecheck": "tsc --noEmit",
+    "lint": "node scripts/lint.mjs",
+    "test": "node --test tests/*.test.ts",
+    "test:load": "node --test tests/t044-load-resilience.test.ts",
+    "test:online": "node --test tests/t054-online-session.test.ts tests/t055-online-room.test.ts tests/t055-online-http.test.ts tests/t056-durable-store.test.ts tests/t057-online-lobby.test.ts tests/t058-multibrowser.test.ts tests/t059-production-boundary.test.ts tests/t060-online-load.test.ts",
+    "check": "npm run check:generated && npm run typecheck && npm run lint && npm test && npm run test:smoke",
+    "release:check": "npm run check && node scripts/release-check.mjs",
+    "online:check": "npm run check && npm run test:online && node scripts/online-release-check.mjs"
+  },
+  "dependencies": {
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/ws": "^8.18.1",
+    "typescript": "^5.9.0"
+  }
+}
