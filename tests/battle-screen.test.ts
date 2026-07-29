@@ -2035,3 +2035,86 @@ test("demon damage and ascension overlays use central and simultaneous result co
   assert.match(ascensionHtml, /Aliceが昇天/u);
   assert.match(ascensionHtml, /HP 0・昇天/u);
 });
+
+test("a replacement card stays face-down until the battle presentation settles", () => {
+  const state = createMatch({
+    matchId: "concealed-replacement-card",
+    seed: "concealed-replacement-card-seed",
+    players: [
+      { playerId: "actor", displayName: "Actor" },
+      { playerId: "target", displayName: "Target" }
+    ]
+  }).state;
+  const baseView = projectGameView(state, "actor");
+  assert.ok(baseView.self);
+  const replacementCard = {
+    instanceId: "replacement-card-instance",
+    cardDefinitionId: "replacement-card-secret",
+    dreamDisguiseCardDefinitionId: null
+  };
+  const view = {
+    ...baseView,
+    self: {
+      ...baseView.self,
+      hand: [...baseView.self.hand, replacementCard]
+    }
+  };
+  const common = {
+    revision: 1,
+    occurredAt: "2026-07-29T00:00:00.000Z"
+  };
+  const events: DomainEvent[] = [
+    {
+      ...common,
+      type: "ACTION_DECLARED",
+      eventSeq: 1,
+      visibility: { scope: "PUBLIC" },
+      playerId: "actor",
+      actionType: "DECLARE_ACTION",
+      targetPlayerId: "target",
+      actionCardDefinitionIds: ["bronze-club"]
+    },
+    {
+      ...common,
+      type: "GRANT_REQUESTED",
+      eventSeq: 2,
+      visibility: { scope: "PUBLIC" },
+      obligation: {
+        obligationId: "replacement-grant",
+        playerId: "actor",
+        reason: "CARD_USED"
+      }
+    },
+    {
+      ...common,
+      type: "CARD_GRANTED",
+      eventSeq: 3,
+      visibility: { scope: "PLAYER", playerId: "actor" },
+      obligationId: "replacement-grant",
+      playerId: "actor",
+      card: replacementCard
+    }
+  ];
+  const presentation = enqueuePresentationEvents(
+    createPresentationQueue(),
+    events,
+    view,
+    0
+  );
+  const ui = synchronizeUiState(initialUiState(), view);
+  const activeHtml = renderBattleScreen(view, ui, {}, presentation);
+
+  assert.deepEqual(presentation.concealedCardInstanceIds, [
+    replacementCard.instanceId
+  ]);
+  assert.match(activeHtml, /data-card-concealed="true"/u);
+  assert.match(activeHtml, /戦闘演出の終了後に公開されます/u);
+  assert.doesNotMatch(activeHtml, /replacement-card-secret/u);
+
+  const settled = advancePresentationClock(presentation, 500);
+  const settledHtml = renderBattleScreen(view, ui, {}, settled);
+  assert.equal(settled.activeStep, null);
+  assert.deepEqual(settled.concealedCardInstanceIds, []);
+  assert.doesNotMatch(settledHtml, /data-card-concealed="true"/u);
+  assert.match(settledHtml, /replacement-card-secret/u);
+});

@@ -1166,7 +1166,11 @@ export class OnlineRoomService {
         seat.teamId = null;
       }
       if (room.hostParticipantId === participant.participantId) {
-        const successor = this.#activeHumans(room)[0];
+        const successor = this.#randomHostSuccessor(
+          room,
+          participant.participantId,
+          false
+        );
         if (successor) {
           room.hostParticipantId = successor.participantId;
           room.hostDisconnectedAt = null;
@@ -1255,9 +1259,10 @@ export class OnlineRoomService {
         requireTimestamp(room.hostDisconnectedAt) +
           this.#hostDisconnectGraceMs <= nowMs
       ) {
-        const successor = this.#activeHumans(room).find(
-          ({ connected, participantId }) =>
-            connected && participantId !== room.hostParticipantId
+        const successor = this.#randomHostSuccessor(
+          room,
+          room.hostParticipantId,
+          true
         );
         if (successor) {
           room.hostParticipantId = successor.participantId;
@@ -1574,6 +1579,21 @@ export class OnlineRoomService {
     return [...room.participants.values()]
       .filter(({ leftAt }) => leftAt === null)
       .sort((left, right) => left.seatIndex - right.seatIndex);
+  }
+
+  #randomHostSuccessor(
+    room: OnlineRoom,
+    departingParticipantId: string,
+    connectedOnly: boolean
+  ): OnlineRoomParticipant | null {
+    const candidates = this.#activeHumans(room).filter(
+      ({ connected, participantId }) =>
+        participantId !== departingParticipantId &&
+        (!connectedOnly || connected)
+    );
+    if (candidates.length === 0) return null;
+    const randomByte = this.#random(1)[0] ?? 0;
+    return candidates[randomByte % candidates.length] ?? null;
   }
 
   #view(room: OnlineRoom): OnlineRoomView {

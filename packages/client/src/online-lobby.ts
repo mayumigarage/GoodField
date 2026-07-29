@@ -105,6 +105,10 @@ export type OnlineRoomTransport = {
     csrfToken: string,
     endTimeThreshold: 1 | 50 | 75 | 100 | 150
   ): Promise<OnlineRoom>;
+  leave(
+    roomId: string,
+    csrfToken: string
+  ): Promise<OnlineRoom | null>;
   start(
     roomId: string,
     csrfToken: string,
@@ -297,6 +301,17 @@ export function createOnlineRoomTransport(
           csrfToken
         ),
         "終末の時を変更できませんでした。"
+      );
+      return body.room;
+    },
+    async leave(roomId, csrfToken) {
+      const body = await requireSuccess<{ room: OnlineRoom | null }>(
+        await post(
+          `/api/rooms/${encodeURIComponent(roomId)}/leave`,
+          {},
+          csrfToken
+        ),
+        "ルームから退出できませんでした。"
       );
       return body.room;
     },
@@ -595,7 +610,16 @@ export function mountOnlineLobby(
 
     root.querySelector("[data-leave-lobby]")?.addEventListener(
       "click",
-      () => options.onLeave?.()
+      () => {
+        if (busy) return;
+        busy = true;
+        void transport.leave(room.roomId, options.csrfToken)
+          .then(() => options.onLeave?.())
+          .catch(report)
+          .finally(() => {
+            busy = false;
+          });
+      }
     );
     root.querySelector("[data-open-debug-player]")?.addEventListener(
       "click",

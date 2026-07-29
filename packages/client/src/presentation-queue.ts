@@ -87,6 +87,7 @@ export type PresentationQueueState = {
   recentEvents: DomainEvent[];
   activeStep: ActivePresentationStep | null;
   pendingSteps: PresentationStep[];
+  concealedCardInstanceIds: string[];
   lastQueuedEventSeq: number;
   lastCompletedEventSeq: number;
 };
@@ -105,6 +106,7 @@ export function createPresentationQueue(
     recentEvents: [],
     activeStep: null,
     pendingSteps: [],
+    concealedCardInstanceIds: [],
     lastQueuedEventSeq: 0,
     lastCompletedEventSeq: 0
   };
@@ -325,15 +327,33 @@ function startNextStep(
   return nextState;
 }
 
+function revealConcealedCardsWhenSettled(
+  state: PresentationQueueState
+): PresentationQueueState {
+  if (
+    state.activeStep ||
+    state.pendingSteps.length > 0 ||
+    state.concealedCardInstanceIds.length === 0
+  ) {
+    return state;
+  }
+  return {
+    ...state,
+    concealedCardInstanceIds: []
+  };
+}
+
 export function advancePresentationClock(
   state: PresentationQueueState,
   nowMs: number
 ): PresentationQueueState {
   const started = state.activeStep ? state : startNextStep(state, nowMs);
   if (!started.activeStep || nowMs < started.activeStep.endsAtMs) {
-    return started;
+    return revealConcealedCardsWhenSettled(started);
   }
-  return startNextStep(completeActiveStep(started), nowMs);
+  return revealConcealedCardsWhenSettled(
+    startNextStep(completeActiveStep(started), nowMs)
+  );
 }
 
 export function enqueuePresentationEvents(
@@ -346,21 +366,49 @@ export function enqueuePresentationEvents(
   const newEvents = [...events]
     .sort((left, right) => left.eventSeq - right.eventSeq)
     .filter(({ eventSeq }) => eventSeq > advanced.lastQueuedEventSeq);
+  const recentEvents = [...advanced.recentEvents, ...newEvents].slice(-128);
+  const grantReasons = new Map(
+    recentEvents
+      .filter(
+        (event): event is Extract<DomainEvent, { type: "GRANT_REQUESTED" }> =>
+          event.type === "GRANT_REQUESTED"
+      )
+      .map(({ obligation }) => [obligation.obligationId, obligation.reason])
+  );
+  const newSteps = newEvents.flatMap((event) =>
+    presentationStepsForEvent(event, advanced.profile)
+  );
   const pendingSteps = [
     ...advanced.pendingSteps,
-    ...newEvents.flatMap((event) =>
-      presentationStepsForEvent(event, advanced.profile)
-    )
+    ...newSteps
   ];
+  const presentationWillPlay =
+    advanced.activeStep !== null || pendingSteps.length > 0;
+  const newlyConcealedCardInstanceIds = presentationWillPlay
+    ? newEvents
+        .filter(
+          (event): event is Extract<DomainEvent, { type: "CARD_GRANTED" }> =>
+            event.type === "CARD_GRANTED" &&
+            event.playerId === snapshot.self?.playerId &&
+            grantReasons.get(event.obligationId) !== "INITIAL"
+        )
+        .map(({ card }) => card.instanceId)
+    : [];
   const queued: PresentationQueueState = {
     ...advanced,
     latestSnapshot: snapshot,
-    recentEvents: [...advanced.recentEvents, ...newEvents].slice(-128),
+    recentEvents,
     pendingSteps,
+    concealedCardInstanceIds: [
+      ...new Set([
+        ...advanced.concealedCardInstanceIds,
+        ...newlyConcealedCardInstanceIds
+      ])
+    ],
     lastQueuedEventSeq:
       newEvents.at(-1)?.eventSeq ?? advanced.lastQueuedEventSeq
   };
-  return startNextStep(queued, nowMs);
+  return revealConcealedCardsWhenSettled(startNextStep(queued, nowMs));
 }
 
 export function replacePresentationFromSnapshot(
@@ -407,8 +455,10 @@ export function skipCurrentPresentation(
   nowMs: number
 ): PresentationQueueState {
   const started = state.activeStep ? state : startNextStep(state, nowMs);
-  if (!started.activeStep) return started;
-  return startNextStep(completeActiveStep(started), nowMs);
+  if (!started.activeStep) return revealConcealedCardsWhenSettled(started);
+  return revealConcealedCardsWhenSettled(
+    startNextStep(completeActiveStep(started), nowMs)
+  );
 }
 
 export function presentationRemainingMs(

@@ -10,19 +10,23 @@ import { OnlineSessionStore } from "../packages/server/src/online-session.ts";
 import { RealtimeMatchHub } from "../packages/server/src/realtime.ts";
 import { RuntimeMatchService } from "../packages/server/src/runtime-match.ts";
 
-function services(clock: () => string): {
+function services(
+  clock: () => string,
+  randomOverride?: (size: number) => Uint8Array
+): {
   rooms: OnlineRoomService;
   matches: RuntimeMatchService;
   sessions: OnlineSessionStore;
 } {
   let randomCounter = 0;
-  const random = (size: number): Uint8Array => {
+  const fallbackRandom = (size: number): Uint8Array => {
     randomCounter += 1;
     return Uint8Array.from(
       { length: size },
       (_, index) => (randomCounter * 31 + index) % 256
     );
   };
+  const random = randomOverride ?? fallbackRandom;
   const matches = new RuntimeMatchService({
     commandApi: new GameCommandApi(clock),
     realtimeHub: new RealtimeMatchHub({ clock }),
@@ -213,6 +217,7 @@ test("T-055 Japanese passphrases find the same hidden-brawl room without storing
   assert.notEqual(newlyCreated.room.roomId, created.room.roomId);
   assert.equal(newlyCreated.room.seatCount, 9);
   assert.equal(newlyCreated.room.endTimeThreshold, 100);
+  assert.equal(newlyCreated.room.seats[0]?.isHost, true);
 
   const started = rooms.start(
     created.session.session,
@@ -234,5 +239,59 @@ test("T-055 Japanese passphrases find the same hidden-brawl room without storing
   const persisted = JSON.stringify(rooms.exportState());
   assert.equal(persisted.includes("ひみつの花園"), false);
   assert.equal(persisted.includes("ちがう合言葉"), false);
+  matches.close();
+});
+
+test("T-055 leaving hidden-brawl host transfers controls to a random connected participant", () => {
+  const now = "2026-07-26T00:00:00.000Z";
+  let randomCall = 0;
+  const random = (size: number): Uint8Array => {
+    randomCall += 1;
+    return Uint8Array.from(
+      { length: size },
+      (_, index) => size === 1 ? 1 : (randomCall * 17 + index) % 256
+    );
+  };
+  const { rooms, matches } = services(() => now, random);
+  const host = rooms.joinByPassphrase({
+    displayName: "最初の参加者",
+    passphrase: "ランダム移譲",
+    requestId: "random-host-create"
+  });
+  const firstGuest = rooms.joinByPassphrase({
+    displayName: "候補1",
+    passphrase: "ランダム移譲",
+    requestId: "random-host-guest-1"
+  });
+  const secondGuest = rooms.joinByPassphrase({
+    displayName: "候補2",
+    passphrase: "ランダム移譲",
+    requestId: "random-host-guest-2"
+  });
+
+  assert.equal(host.room.seats[0]?.isHost, true);
+  const transferred = rooms.leave(host.session.session);
+  assert.ok(transferred);
+  assert.equal(
+    transferred.seats.find(
+      ({ participantId }) => participantId === secondGuest.participantId
+    )?.isHost,
+    true
+  );
+  assert.equal(
+    transferred.seats.find(
+      ({ participantId }) => participantId === firstGuest.participantId
+    )?.isHost,
+    false
+  );
+  assert.doesNotThrow(() =>
+    rooms.shuffleTeams(secondGuest.session.session)
+  );
+  assert.throws(
+    () => rooms.shuffleTeams(firstGuest.session.session),
+    (error: unknown) =>
+      error instanceof OnlineRoomError &&
+      error.code === "HOST_REQUIRED"
+  );
   matches.close();
 });

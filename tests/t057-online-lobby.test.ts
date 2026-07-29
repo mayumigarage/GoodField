@@ -83,6 +83,7 @@ test("T-057 hidden brawl transport joins by passphrase without exposing a room i
   await transport.setTeam("room_hidden", "csrf-hidden", "TEAM_3");
   await transport.shuffleTeams("room_hidden", "csrf-hidden");
   await transport.setEndTime("room_hidden", "csrf-hidden", 150);
+  await transport.leave("room_hidden", "csrf-hidden");
 
   assert.equal(requests[0]?.input, "/api/rooms/join");
   assert.deepEqual(JSON.parse(String(requests[0]?.init?.body)), {
@@ -99,7 +100,8 @@ test("T-057 hidden brawl transport joins by passphrase without exposing a room i
     [
       "/api/rooms/room_hidden/team",
       "/api/rooms/room_hidden/shuffle-teams",
-      "/api/rooms/room_hidden/end-time"
+      "/api/rooms/room_hidden/end-time",
+      "/api/rooms/room_hidden/leave"
     ]
   );
   assert.deepEqual(JSON.parse(String(requests[1]?.init?.body)), {

@@ -348,6 +348,23 @@ function renderCard(
     </li>`;
 }
 
+function renderConcealedCard(): string {
+  return `
+    <li
+      class="gf-card gf-card--concealed"
+      data-card-concealed="true"
+    >
+      <button
+        type="button"
+        class="gf-card__button"
+        aria-label="ドローしたカード。戦闘演出の終了後に公開されます"
+        disabled
+      >
+        <span class="gf-card__back" aria-hidden="true"></span>
+      </button>
+    </li>`;
+}
+
 function renderMiracle(
   miracle: LearnedMiracleView,
   ui: UiInteractionState,
@@ -1838,6 +1855,9 @@ export function renderBattleScreen(
       ? "終末なし"
       : `終末 G.F.${displayedEndTimeAt}`;
   const hand = view.self?.hand ?? [];
+  const concealedCardInstanceIds = new Set(
+    visiblePresentation?.concealedCardInstanceIds ?? []
+  );
   const miracles = view.self?.learnedMiracles ?? [];
   const preview = actionPreview(displayedUi, view);
   const selfPlayer = playerById(view, view.self?.playerId ?? null);
@@ -1868,7 +1888,11 @@ export function renderBattleScreen(
   const handMarkup =
     hand.length > 0
       ? hand
-          .map((card) => renderCard(card, displayedUi, view))
+          .map((card) =>
+            concealedCardInstanceIds.has(card.instanceId)
+              ? renderConcealedCard()
+              : renderCard(card, displayedUi, view)
+          )
           .join("")
       : emptyState(view.self ? "手札はありません" : "観戦者には手札は表示されません");
   const miracleMarkup =
@@ -4661,6 +4685,31 @@ export const BATTLE_SCREEN_STYLES = `
 
 .gf-hand .gf-card__image {
   object-fit: cover;
+}
+
+.gf-hand .gf-card--concealed {
+  border-color: #477f79;
+  background: #70beb5;
+  box-shadow:
+    inset 0 0 0 2px rgb(225 255 247 / 22%),
+    0 1px 2px rgb(0 65 58 / 22%);
+}
+
+.gf-hand .gf-card--concealed .gf-card__button {
+  block-size: 100%;
+  opacity: 1;
+  cursor: default;
+}
+
+.gf-hand .gf-card__back {
+  inline-size: 100%;
+  block-size: 100%;
+  display: block;
+  border: 1px solid rgb(222 255 248 / 34%);
+  background:
+    linear-gradient(135deg, rgb(255 255 255 / 7%), transparent 45%),
+    #69b5ad;
+  box-shadow: inset 0 0 0 2px rgb(0 80 72 / 16%);
 }
 
 .gf-hand .gf-card__name {
