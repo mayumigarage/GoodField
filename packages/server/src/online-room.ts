@@ -73,6 +73,7 @@ export type OnlineRoomSeatView = {
 
 export type OnlineRoomView = {
   roomId: string;
+  hostParticipantId: string;
   accessMode: "PASSPHRASE" | "INVITATION";
   status: OnlineRoomStatus;
   seatCount: number;
@@ -906,6 +907,48 @@ export class OnlineRoomService {
     return this.#view(room);
   }
 
+  setEntry(session: OnlineSession, entered: boolean): OnlineRoomView {
+    const { room, participant } = this.#requireParticipant(session);
+    this.#requireOpenRoom(room.roomId);
+    if (room.passphraseDigest === null) {
+      throw new OnlineRoomError(
+        "INVALID_REQUEST",
+        "Entry toggles are available only in hidden brawl"
+      );
+    }
+    const currentSeat = room.seats.find(
+      ({ participantId }) =>
+        participantId === participant.participantId
+    );
+    if (entered) {
+      if (currentSeat) return this.#view(room);
+      const openSeat = room.seats.find(
+        ({ controller }) => controller === null
+      );
+      if (!openSeat) {
+        throw new OnlineRoomError(
+          "ROOM_FULL",
+          "The room has no open seat",
+          409
+        );
+      }
+      participant.seatIndex = openSeat.seatIndex;
+      openSeat.controller = "HUMAN";
+      openSeat.participantId = participant.participantId;
+      openSeat.cpuDisplayName = null;
+      openSeat.ready = false;
+      openSeat.teamId = null;
+    } else if (currentSeat) {
+      currentSeat.controller = null;
+      currentSeat.participantId = null;
+      currentSeat.cpuDisplayName = null;
+      currentSeat.ready = false;
+      currentSeat.teamId = null;
+    }
+    room.updatedAt = this.#clock();
+    return this.#view(room);
+  }
+
   shuffleTeams(session: OnlineSession): OnlineRoomView {
     const room = this.#requireHost(session);
     this.#requireOpenRoom(room.roomId);
@@ -1091,8 +1134,9 @@ export class OnlineRoomService {
               runtimeParticipant?.playerId ?? null;
           }
           const host = room.participants.get(room.hostParticipantId);
-          const snapshot =
-            host ? this.#snapshotForParticipant(room, host) : null;
+          const snapshot = host?.matchPlayerId
+            ? this.#snapshotForParticipant(room, host)
+            : this.#matchService.view(created.matchId, null);
           if (!snapshot) {
             throw new Error("Started room has no host snapshot");
           }
@@ -1218,6 +1262,18 @@ export class OnlineRoomService {
     const participant = session.participantId
       ? room.participants.get(session.participantId)
       : null;
+    if (
+      participant &&
+      !participant.matchPlayerId &&
+      participant.participantId === room.hostParticipantId
+    ) {
+      return {
+        matchId: room.matchId,
+        participantId: participant.participantId,
+        playerId: null,
+        viewer: { kind: "SPECTATOR" }
+      };
+    }
     if (!participant?.matchPlayerId) return null;
     return {
       matchId: room.matchId,
@@ -1619,6 +1675,7 @@ export class OnlineRoomService {
     const occupied = seats.filter(({ controller }) => controller !== null);
     return {
       roomId: room.roomId,
+      hostParticipantId: room.hostParticipantId,
       accessMode:
         room.passphraseDigest === null ? "INVITATION" : "PASSPHRASE",
       status: room.status,
@@ -1802,7 +1859,7 @@ function roomPath(
   pathname: string
 ): { roomId: string; action: string | null; seatIndex: number | null } | null {
   const match =
-    /^\/api\/rooms\/([^/]+)(?:\/(join|rejoin|spectate|ready|team|shuffle-teams|end-time|start|leave|match|session|invitation|seats)(?:\/([^/]+))?)?\/?$/u
+    /^\/api\/rooms\/([^/]+)(?:\/(join|rejoin|spectate|ready|entry|team|shuffle-teams|end-time|start|leave|match|session|invitation|seats)(?:\/([^/]+))?)?\/?$/u
       .exec(pathname);
   if (!match?.[1]) return null;
   let roomId: string;
@@ -2145,6 +2202,23 @@ export function createOnlineRoomHttpHandler(
           session,
           body.teamId as OnlineRoomTeamId | null
         );
+        commit();
+        writeJson(response, 200, { ok: true, room });
+        return;
+      }
+      if (request.method === "POST" && route.action === "entry") {
+        const body = await readJsonBody(request, maxRequestBodyBytes);
+        if (
+          !isRecord(body) ||
+          !hasOnlyKeys(body, ["entered"]) ||
+          typeof body.entered !== "boolean"
+        ) {
+          throw new OnlineRoomError(
+            "INVALID_REQUEST",
+            "Entry request is invalid"
+          );
+        }
+        const room = service.setEntry(session, body.entered);
         commit();
         writeJson(response, 200, { ok: true, room });
         return;

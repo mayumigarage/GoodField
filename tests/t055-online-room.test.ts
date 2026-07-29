@@ -295,3 +295,75 @@ test("T-055 leaving hidden-brawl host transfers controls to a random connected p
   );
   matches.close();
 });
+
+test("T-055 hidden-brawl host can toggle list entry while retaining host controls", () => {
+  const now = "2026-07-26T00:00:00.000Z";
+  const { rooms, matches } = services(() => now);
+  const host = rooms.joinByPassphrase({
+    displayName: "主催者",
+    passphrase: "出入り自由",
+    requestId: "entry-host"
+  });
+  const firstGuest = rooms.joinByPassphrase({
+    displayName: "参加者1",
+    passphrase: "出入り自由",
+    requestId: "entry-guest-1"
+  });
+  const secondGuest = rooms.joinByPassphrase({
+    displayName: "参加者2",
+    passphrase: "出入り自由",
+    requestId: "entry-guest-2"
+  });
+
+  const exited = rooms.setEntry(host.session.session, false);
+  assert.equal(exited.hostParticipantId, host.participantId);
+  assert.equal(
+    exited.seats.some(
+      ({ participantId }) => participantId === host.participantId
+    ),
+    false
+  );
+  assert.equal(exited.canStart, true);
+  assert.doesNotThrow(() =>
+    rooms.shuffleTeams(host.session.session)
+  );
+
+  const reentered = rooms.setEntry(host.session.session, true);
+  assert.equal(
+    reentered.seats.find(
+      ({ participantId }) => participantId === host.participantId
+    )?.teamId,
+    null
+  );
+  const exitedAgain = rooms.setEntry(host.session.session, false);
+  assert.equal(exitedAgain.canStart, true);
+
+  const started = rooms.start(
+    host.session.session,
+    "host-observer-start"
+  );
+  assert.equal(started.snapshot.self, null);
+  assert.equal(
+    started.snapshot.players.some(
+      ({ displayName }) => displayName === "主催者"
+    ),
+    false
+  );
+  assert.deepEqual(
+    new Set(started.snapshot.players.map(({ displayName }) => displayName)),
+    new Set(["参加者1", "参加者2"])
+  );
+  assert.deepEqual(
+    rooms.authorizeMatch(host.session.session)?.viewer,
+    { kind: "SPECTATOR" }
+  );
+  assert.equal(
+    rooms.authorizeMatch(firstGuest.session.session)?.viewer.kind,
+    "PLAYER"
+  );
+  assert.equal(
+    rooms.authorizeMatch(secondGuest.session.session)?.viewer.kind,
+    "PLAYER"
+  );
+  matches.close();
+});

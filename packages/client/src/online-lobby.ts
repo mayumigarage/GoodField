@@ -17,6 +17,7 @@ export type OnlineRoomSeat = {
 
 export type OnlineRoom = {
   roomId: string;
+  hostParticipantId: string;
   accessMode: "PASSPHRASE" | "INVITATION";
   status: "OPEN" | "STARTING" | "STARTED" | "EXPIRED";
   seatCount: number;
@@ -95,6 +96,11 @@ export type OnlineRoomTransport = {
     roomId: string,
     csrfToken: string,
     teamId: OnlineRoomSeat["teamId"]
+  ): Promise<OnlineRoom>;
+  setEntry(
+    roomId: string,
+    csrfToken: string,
+    entered: boolean
   ): Promise<OnlineRoom>;
   shuffleTeams(
     roomId: string,
@@ -278,6 +284,19 @@ export function createOnlineRoomTransport(
       );
       return body.room;
     },
+    async setEntry(roomId, csrfToken, entered) {
+      const body = await requireSuccess<{ room: OnlineRoom }>(
+        await post(
+          `/api/rooms/${encodeURIComponent(roomId)}/entry`,
+          { entered },
+          csrfToken
+        ),
+        entered
+          ? "参加者リストへエントリーできませんでした。"
+          : "参加者リストから退出できませんでした。"
+      );
+      return body.room;
+    },
     async shuffleTeams(roomId, csrfToken) {
       const body = await requireSuccess<{ room: OnlineRoom }>(
         await post(
@@ -417,7 +436,9 @@ export function mountOnlineLobby(
     const ownSeat = room.seats.find(
       (seat) => seat.participantId === options.participantId
     );
-    const isHost = ownSeat?.isHost ?? false;
+    const isHost =
+      room.hostParticipantId === options.participantId ||
+      (ownSeat?.isHost ?? false);
     const hiddenBrawl = room.accessMode === "PASSPHRASE";
     const soundMeter = Array.from(
       { length: 10 },
@@ -515,14 +536,18 @@ export function mountOnlineLobby(
             : ""
         }
         ${
-          hiddenBrawl && ownSeat
+          hiddenBrawl && options.participantId
             ? `<div class="hidden-brawl-arena">
                 <section class="hidden-brawl-choice hidden-brawl-choice--solo"
-                  aria-labelledby="individual-battle-title">
-                  <h2 id="individual-battle-title">個人戦</h2>
-                  <button type="button" data-team-choice=""
-                    aria-pressed="${String(ownSeat.teamId === null)}"
-                    aria-label="個人戦を選ぶ">
+                  aria-labelledby="entry-toggle-title">
+                  <h2 id="entry-toggle-title">エントリー</h2>
+                  <button type="button" data-entry-toggle
+                    aria-pressed="${String(ownSeat !== undefined)}"
+                    aria-label="${
+                      ownSeat
+                        ? "参加者リストから退出する"
+                        : "参加者リストへエントリーする"
+                    }">
                     <span aria-hidden="true">●</span>
                   </button>
                 </section>
@@ -542,7 +567,8 @@ export function mountOnlineLobby(
                       `<button type="button"
                         data-team-choice="${teamId}"
                         data-team="${teamId}"
-                        aria-pressed="${String(ownSeat.teamId === teamId)}"
+                        ${ownSeat ? "" : "disabled"}
+                        aria-pressed="${String(ownSeat?.teamId === teamId)}"
                         aria-label="チーム ${teamId?.slice(-1)}を選ぶ">
                         ${symbol}
                       </button>`
@@ -637,6 +663,20 @@ export function mountOnlineLobby(
       () => {
         if (!options.passphrase) return;
         void clipboard.writeText(options.passphrase).catch(report);
+      }
+    );
+    root.querySelector("[data-entry-toggle]")?.addEventListener(
+      "click",
+      () => {
+        if (busy) return;
+        busy = true;
+        void transport.setEntry(
+          room.roomId,
+          options.csrfToken,
+          ownSeat === undefined
+        ).then(update).catch(report).finally(() => {
+          busy = false;
+        });
       }
     );
     for (const button of root.querySelectorAll<HTMLButtonElement>(
