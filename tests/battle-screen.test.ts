@@ -1621,6 +1621,117 @@ test("another player's action remains visible and locks the viewer's new turn un
   assert.match(html, /data-game-input-disabled="false"/u);
 });
 
+test("a following CPU attack stays hidden until the current attack presentation settles", () => {
+  const state = createMatch({
+    matchId: "deferred-cpu-attack",
+    seed: "deferred-cpu-attack-seed",
+    players: [
+      { playerId: "human", displayName: "Human" },
+      { playerId: "cpu", displayName: "CPU", controller: "CPU" }
+    ]
+  }).state;
+  const view = projectGameView(state, "human");
+  const ui = synchronizeUiState(initialUiState(), view);
+  const currentAttack = {
+    attackId: "human-attack",
+    reactionId: "human-reaction",
+    reactionDepth: 0,
+    seriesId: "human-series",
+    attackNumber: 1,
+    totalAttacks: 1,
+    targetIndex: 0,
+    totalTargets: 1,
+    attackKind: "WEAPON" as const,
+    actorId: "human",
+    targetPlayerId: "cpu",
+    sourceCardInstanceIds: ["human-card"],
+    sourceLearnedMiracleIds: [],
+    sourceCardDefinitionIds: ["bronze-club"],
+    element: "PHYSICAL" as const,
+    power: 5,
+    hit: null
+  };
+  const latestView = {
+    ...view,
+    activePlayerId: "cpu",
+    actingPlayerId: "cpu",
+    pendingAttack: {
+      attackId: "cpu-attack",
+      reactionId: "cpu-reaction",
+      seriesId: "cpu-series",
+      attackNumber: 1,
+      totalAttacks: 1,
+      targetIndex: 0,
+      totalTargets: 1,
+      attackKind: "WEAPON" as const,
+      actorId: "cpu",
+      targetPlayerId: "human",
+      sourceCardDefinitionIds: ["crossbow"],
+      element: "PHYSICAL" as const,
+      power: 7,
+      hit: null
+    }
+  };
+  const baseEvent = {
+    revision: 1,
+    occurredAt: "2026-07-29T00:00:00.000Z",
+    visibility: { scope: "PUBLIC" as const }
+  };
+  const presentation = enqueuePresentationEvents(
+    createPresentationQueue(),
+    [
+      {
+        ...baseEvent,
+        type: "ACTION_DECLARED",
+        eventSeq: 1,
+        playerId: "human",
+        actionType: "DECLARE_ACTION",
+        targetPlayerId: "cpu",
+        actionCardDefinitionIds: ["bronze-club"]
+      },
+      {
+        ...baseEvent,
+        revision: 2,
+        type: "ATTACK_CREATED",
+        eventSeq: 2,
+        attack: currentAttack,
+        actionOwnerId: "human",
+        targetPlayerIds: ["cpu"],
+        hitRate: 100,
+        attackerGrantCount: 1,
+        completion: "FINISH_TURN"
+      }
+    ],
+    latestView,
+    0
+  );
+
+  const currentActionHtml = renderBattleScreen(
+    latestView,
+    ui,
+    {},
+    presentation
+  );
+  assert.match(currentActionHtml, /銅のこん棒/u);
+  assert.doesNotMatch(currentActionHtml, /クロスボウ/u);
+
+  const currentTargetHtml = renderBattleScreen(
+    latestView,
+    ui,
+    {},
+    advancePresentationClock(presentation, 500)
+  );
+  assert.match(currentTargetHtml, /銅のこん棒/u);
+  assert.doesNotMatch(currentTargetHtml, /クロスボウ/u);
+
+  const settledHtml = renderBattleScreen(latestView, ui, {}, {
+    ...presentation,
+    activeStep: null,
+    pendingSteps: []
+  });
+  assert.match(settledHtml, /クロスボウ/u);
+});
+
 test("another player's healing card shows for 500ms, then its recovery for 1,000ms before input unlocks", () => {
   const state = createMatch({
     matchId: "foreign-recovery-presentation",

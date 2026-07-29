@@ -793,7 +793,26 @@ function renderActionRegion(
     ["HIT_RESULT", "REACTION", "DAMAGE_RESULT", "HP_UPDATE", "CALAMITY"].includes(
       presentedAttack.stageKind
     );
-  const authoritativePendingAttack = pendingAttack;
+  const activeEvent = presentation?.activeStep?.step.event;
+  const pendingMatchesActivePresentation =
+    pendingAttack !== null &&
+    (
+      presentedAttack?.attackEvent.attack.attackId ===
+        pendingAttack.attackId ||
+      (
+        activeEvent?.type === "ACTION_DECLARED" &&
+        activeEvent.actionType === "DECLARE_ACTION" &&
+        activeEvent.playerId === pendingAttack.actorId &&
+        activeEvent.targetPlayerId === pendingAttack.targetPlayerId
+      )
+    );
+  // A realtime batch can already contain the following CPU attack while an
+  // earlier attack is still being presented. Only use the authoritative
+  // pending attack when it belongs to the presentation currently on screen.
+  const authoritativePendingAttack =
+    activePresentationKind === null || pendingMatchesActivePresentation
+      ? pendingAttack
+      : null;
   const guardianAction = presentationGuardianAction(presentation);
   const activeResourceEffect = presentationResourceEffect(presentation);
   const resourceEffectUsesRecentCard =
