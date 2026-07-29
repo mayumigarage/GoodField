@@ -1984,10 +1984,102 @@ test("a damage counter ring retaliates after incoming damage", () => {
     defenseCardInstanceIds: ["ring"]
   });
   assert.equal(reaction.ok, true);
-  if (!reaction.ok) return;
-  assert.equal(reaction.state.players[setup.targetId]?.hp, 39);
-  assert.equal(reaction.state.players[setup.actorId]?.hp, 8);
-  assert.equal(reaction.state.players[setup.targetId]?.hand.length, 1);
+  if (!reaction.ok || reaction.state.pendingAction?.kind !== "ATTACK") return;
+  assert.equal(reaction.state.phase, "REACTION_SELECTION");
+  assert.equal(
+    reaction.state.pendingAction.attack.attackKind,
+    "TARGETED_CARD"
+  );
+  assert.equal(
+    reaction.state.pendingAction.attack.targetPlayerId,
+    setup.actorId
+  );
+  assert.equal(reaction.state.players[setup.actorId]?.hp, 10);
+  const counterReaction = handleCommand(reaction.state, {
+    type: "DECLARE_REACTION",
+    matchId: reaction.state.matchId,
+    commandId: "accept-ring-counter",
+    actorId: setup.actorId,
+    expectedRevision: reaction.state.revision,
+    reactionId: reaction.state.pendingAction.attack.reactionId,
+    defenseCardInstanceIds: []
+  });
+  assert.equal(counterReaction.ok, true);
+  if (!counterReaction.ok) return;
+  assert.equal(counterReaction.state.players[setup.targetId]?.hp, 39);
+  assert.equal(counterReaction.state.players[setup.actorId]?.hp, 8);
+  assert.equal(counterReaction.state.players[setup.targetId]?.hand.length, 1);
+});
+
+test("an anything mirror can reflect a counter before it resolves", () => {
+  const setup = withHands(
+    createTwoPlayerMatch("counter-reflection").state,
+    [
+      card("weapon", "bronze-club"),
+      card("mirror", "super-mirror")
+    ],
+    [card("ring", "saturn-ring")]
+  );
+  const state: MatchState = {
+    ...setup.state,
+    players: {
+      ...setup.state.players,
+      [setup.actorId]: {
+        ...setup.state.players[setup.actorId]!,
+        hp: 10
+      }
+    }
+  };
+  const action = handleCommand(state, {
+    type: "DECLARE_ACTION",
+    matchId: state.matchId,
+    commandId: "counter-reflection-attack",
+    actorId: setup.actorId,
+    expectedRevision: state.revision,
+    cardInstanceIds: ["weapon"],
+    targetPlayerId: setup.targetId
+  });
+  assert.equal(action.ok, true);
+  if (!action.ok || action.state.pendingAction?.kind !== "ATTACK") return;
+  const counter = handleCommand(action.state, {
+    type: "DECLARE_REACTION",
+    matchId: action.state.matchId,
+    commandId: "counter-reflection-ring",
+    actorId: setup.targetId,
+    expectedRevision: action.state.revision,
+    reactionId: action.state.pendingAction.attack.reactionId,
+    defenseCardInstanceIds: ["ring"]
+  });
+  assert.equal(counter.ok, true);
+  if (!counter.ok || counter.state.pendingAction?.kind !== "ATTACK") return;
+  const reflected = handleCommand(counter.state, {
+    type: "DECLARE_REACTION",
+    matchId: counter.state.matchId,
+    commandId: "reflect-counter",
+    actorId: setup.actorId,
+    expectedRevision: counter.state.revision,
+    reactionId: counter.state.pendingAction.attack.reactionId,
+    defenseCardInstanceIds: ["mirror"]
+  });
+  assert.equal(reflected.ok, true);
+  if (!reflected.ok || reflected.state.pendingAction?.kind !== "ATTACK") return;
+  assert.equal(
+    reflected.state.pendingAction.attack.targetPlayerId,
+    setup.targetId
+  );
+  const accepted = handleCommand(reflected.state, {
+    type: "DECLARE_REACTION",
+    matchId: reflected.state.matchId,
+    commandId: "accept-reflected-counter",
+    actorId: setup.targetId,
+    expectedRevision: reflected.state.revision,
+    reactionId: reflected.state.pendingAction.attack.reactionId,
+    defenseCardInstanceIds: []
+  });
+  assert.equal(accepted.ok, true);
+  if (!accepted.ok) return;
+  assert.equal(accepted.state.players[setup.actorId]?.hp, 10);
+  assert.equal(accepted.state.players[setup.targetId]?.hp, 37);
 });
 
 test("venus ring transfers money equal to received damage", () => {
@@ -2031,9 +2123,21 @@ test("venus ring transfers money equal to received damage", () => {
     defenseCardInstanceIds: ["ring"]
   });
   assert.equal(reaction.ok, true);
-  if (!reaction.ok) return;
-  assert.equal(reaction.state.players[setup.actorId]?.money, 7);
-  assert.equal(reaction.state.players[setup.targetId]?.money, 6);
+  if (!reaction.ok || reaction.state.pendingAction?.kind !== "ATTACK") return;
+  assert.equal(reaction.state.phase, "REACTION_SELECTION");
+  const accepted = handleCommand(reaction.state, {
+    type: "DECLARE_REACTION",
+    matchId: reaction.state.matchId,
+    commandId: "accept-venus-counter",
+    actorId: setup.actorId,
+    expectedRevision: reaction.state.revision,
+    reactionId: reaction.state.pendingAction.attack.reactionId,
+    defenseCardInstanceIds: []
+  });
+  assert.equal(accepted.ok, true);
+  if (!accepted.ok) return;
+  assert.equal(accepted.state.players[setup.actorId]?.money, 7);
+  assert.equal(accepted.state.players[setup.targetId]?.money, 6);
 });
 
 test("rainbow curtain filters an elemental attack before ordinary defense", () => {
@@ -3187,6 +3291,23 @@ test("random attack phenomena open a phenomenon reaction against a logged target
       true
     );
   }
+});
+
+test("a phenomenon that attacks its own source resolves without a reaction", () => {
+  const setup = phenomenonMatch("self-phen-1", 4);
+  const result = invokePhenomenon(setup, "self-phenomenon-attack");
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  const attack = result.events.find(
+    ({ type }) => type === "ATTACK_CREATED"
+  );
+  assert.ok(attack && attack.type === "ATTACK_CREATED");
+  if (attack?.type !== "ATTACK_CREATED") return;
+  assert.equal(attack.attack.actorId, attack.attack.targetPlayerId);
+  assert.equal(
+    result.events.some(({ type }) => type === "REACTION_REQUESTED"),
+    false
+  );
 });
 
 test("mushroom phenomenon schedules three seat-order rounds and increments GF per automatic action", () => {

@@ -110,6 +110,15 @@ export type DeferredTargetedCardEffect =
   | {
       kind: "BUY";
       tradeId: string;
+    }
+  | {
+      kind: "COUNTER";
+      definitionIds: string[];
+      receivedDamage: number;
+      originalAttack: AttackState;
+      originalTargetPlayerIds: string[];
+      originalHitRate: number;
+      originalCompletion: AttackCompletion;
     };
 
 export type PendingAction =

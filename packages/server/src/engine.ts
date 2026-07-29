@@ -468,9 +468,11 @@ export function applyEvent(state: MatchState, event: DomainEvent): MatchState {
           revivalGrantCounts: existing?.revivalGrantCounts ?? {},
           completion: event.completion,
           deferredTargetedCardEffect:
-            event.deferredTargetedCardEffect ??
-            existing?.deferredTargetedCardEffect ??
-            null
+            "deferredTargetedCardEffect" in event
+              ? event.deferredTargetedCardEffect ?? null
+              : existing?.deferredTargetedCardEffect?.kind === "COUNTER"
+                ? null
+                : existing?.deferredTargetedCardEffect ?? null
         }
       };
       }
@@ -1946,6 +1948,8 @@ function startTargetedCardReaction(
     sourceLearnedMiracleIds: string[];
     sourceCardDefinitionIds: string[];
     attackerGrantCount: number;
+    attackId?: string;
+    attackActorId?: string;
     deferredTargetedCardEffect: NonNullable<
       Extract<
         NonNullable<MatchState["pendingAction"]>,
@@ -1954,7 +1958,7 @@ function startTargetedCardReaction(
     >;
   }
 ): void {
-  const attackId = `${options.seriesId}:targeted-card`;
+  const attackId = options.attackId ?? `${options.seriesId}:targeted-card`;
   const reactionId = `${attackId}:reaction:1`;
   emit(context, {
     type: "ATTACK_CREATED",
@@ -1968,7 +1972,7 @@ function startTargetedCardReaction(
       targetIndex: 0,
       totalTargets: 1,
       attackKind: "TARGETED_CARD",
-      actorId: options.actionOwnerId,
+      actorId: options.attackActorId ?? options.actionOwnerId,
       targetPlayerId: options.targetPlayerId,
       sourceCardInstanceIds: [...options.sourceCardInstanceIds],
       sourceLearnedMiracleIds: [...options.sourceLearnedMiracleIds],
@@ -2084,6 +2088,20 @@ function startAttackSeriesStep(
         hitRate: plan.hitRate
       });
       if (hit) {
+        if (targetPlayerId === plan.actionOwnerId) {
+          const selfPending = context.state.pendingAction;
+          if (selfPending?.kind !== "ATTACK") {
+            throw new Error("Self attack state disappeared");
+          }
+          resolvePendingAttackDamage(
+            context,
+            selfPending,
+            targetPlayerId,
+            0
+          );
+          if (!context.state.players[targetPlayerId]?.alive) break;
+          continue;
+        }
         emit(context, {
           type: "REACTION_REQUESTED",
           reactionId,
@@ -2232,16 +2250,14 @@ function resolvePendingAttackDamage(
   return amount;
 }
 
-function applyCounterEffects(
+function resolveCounterTargetedEffects(
   context: EngineContext,
-  pending: Extract<NonNullable<MatchState["pendingAction"]>, { kind: "ATTACK" }>,
-  defenderId: string,
+  targetPlayerId: string,
+  beneficiaryPlayerId: string,
   definitions: readonly CardDefinition[],
   receivedDamage: number
 ): void {
-  if (receivedDamage <= 0) return;
   for (const definition of definitions) {
-    const attacker = context.state.players[pending.attack.actorId];
     for (const instruction of instructionsOfKind(definition, "ATTACK")) {
       if (
         instruction.amount !== "DAMAGE" &&
@@ -2262,22 +2278,23 @@ function applyCounterEffects(
         );
         hit = consumeSelection(context, selection);
       }
-      if (hit && attacker?.alive) {
+      const target = context.state.players[targetPlayerId];
+      if (hit && target?.alive) {
         const counterDamage =
           receivedDamage * (instruction.amount === "DAMAGE_X2" ? 2 : 1);
         emit(context, {
           type: "RESOURCE_CHANGED",
-          playerId: attacker.playerId,
+          playerId: target.playerId,
           resource: "HP",
           delta: -counterDamage,
-          valueAfter: clampResource(attacker.hp - counterDamage),
+          valueAfter: clampResource(target.hp - counterDamage),
           reason: "COUNTER"
         });
-        resolveHpZero(context, attacker.playerId);
+        resolveHpZero(context, target.playerId, beneficiaryPlayerId);
         maybeDepartGuardianAfterHpLoss(
           context,
-          attacker.playerId,
-          Math.min(counterDamage, attacker.hp)
+          target.playerId,
+          Math.min(counterDamage, target.hp)
         );
       }
     }
@@ -2285,14 +2302,54 @@ function applyCounterEffects(
       definition,
       "ADD_CALAMITY"
     )) {
-      if (instruction.timing === "COUNTER" && attacker?.alive) {
+      if (
+        instruction.timing === "COUNTER" &&
+        context.state.players[targetPlayerId]?.alive
+      ) {
         applyCalamityEffect(
           context,
-          attacker.playerId,
+          targetPlayerId,
           instruction.calamity
         );
       }
     }
+    for (const instruction of instructionsOfKind(definition, "TAKE_MONEY")) {
+      const target = context.state.players[targetPlayerId];
+      if (instruction.amount === "DAMAGE" && target?.alive) {
+        const taken = Math.min(target.money, receivedDamage);
+        emit(context, {
+          type: "RESOURCE_CHANGED",
+          playerId: target.playerId,
+          resource: "MONEY",
+          delta: -taken,
+          valueAfter: target.money - taken,
+          reason: "COUNTER"
+        });
+        const beneficiary = context.state.players[beneficiaryPlayerId];
+        if (beneficiary?.alive && taken > 0) {
+          emit(context, {
+            type: "RESOURCE_CHANGED",
+            playerId: beneficiary.playerId,
+            resource: "MONEY",
+            delta: taken,
+            valueAfter: clampResource(beneficiary.money + taken),
+            reason: "COUNTER"
+          });
+        }
+      }
+    }
+  }
+}
+
+function startCounterReaction(
+  context: EngineContext,
+  pending: Extract<NonNullable<MatchState["pendingAction"]>, { kind: "ATTACK" }>,
+  defenderId: string,
+  definitions: readonly CardDefinition[],
+  receivedDamage: number
+): boolean {
+  if (receivedDamage <= 0) return false;
+  for (const definition of definitions) {
     for (const instruction of instructionsOfKind(
       definition,
       "COUNTER_BOOST_MP"
@@ -2310,32 +2367,61 @@ function applyCounterEffects(
         });
       }
     }
-    for (const instruction of instructionsOfKind(definition, "TAKE_MONEY")) {
-      const currentAttacker = context.state.players[pending.attack.actorId];
-      if (instruction.amount === "DAMAGE" && currentAttacker?.alive) {
-        const taken = Math.min(currentAttacker.money, receivedDamage);
-        emit(context, {
-          type: "RESOURCE_CHANGED",
-          playerId: currentAttacker.playerId,
-          resource: "MONEY",
-          delta: -taken,
-          valueAfter: currentAttacker.money - taken,
-          reason: "COUNTER"
-        });
-        const defender = context.state.players[defenderId];
-        if (defender?.alive && taken > 0) {
-          emit(context, {
-            type: "RESOURCE_CHANGED",
-            playerId: defender.playerId,
-            resource: "MONEY",
-            delta: taken,
-            valueAfter: clampResource(defender.money + taken),
-            reason: "COUNTER"
-          });
-        }
-      }
-    }
   }
+  const targetedDefinitions = definitions.filter(
+    (definition) =>
+      instructionsOfKind(definition, "ATTACK").some(
+        ({ amount }) => amount === "DAMAGE" || amount === "DAMAGE_X2"
+      ) ||
+      instructionsOfKind(definition, "ADD_CALAMITY").some(
+        ({ timing }) => timing === "COUNTER"
+      ) ||
+      instructionsOfKind(definition, "TAKE_MONEY").some(
+        ({ amount }) => amount === "DAMAGE"
+      )
+  );
+  const targetPlayerId = pending.attack.actorId;
+  if (
+    targetedDefinitions.length === 0 ||
+    !context.state.players[targetPlayerId]?.alive
+  ) {
+    return false;
+  }
+  if (targetPlayerId === defenderId) {
+    resolveCounterTargetedEffects(
+      context,
+      targetPlayerId,
+      defenderId,
+      targetedDefinitions,
+      receivedDamage
+    );
+    return false;
+  }
+  startTargetedCardReaction(context, {
+    seriesId: pending.attack.seriesId,
+    attackId: `${pending.attack.attackId}:counter:${pending.attack.reactionId}`,
+    actionOwnerId: pending.actionOwnerId,
+    attackActorId: defenderId,
+    targetPlayerId,
+    sourceCardInstanceIds: [],
+    sourceLearnedMiracleIds: [],
+    sourceCardDefinitionIds: targetedDefinitions.map(
+      ({ cardDefinitionId }) => cardDefinitionId
+    ),
+    attackerGrantCount: pending.attackerGrantCount,
+    deferredTargetedCardEffect: {
+      kind: "COUNTER",
+      definitionIds: targetedDefinitions.map(
+        ({ cardDefinitionId }) => cardDefinitionId
+      ),
+      receivedDamage,
+      originalAttack: { ...pending.attack },
+      originalTargetPlayerIds: [...pending.targetPlayerIds],
+      originalHitRate: pending.hitRate,
+      originalCompletion: pending.completion
+    }
+  });
+  return true;
 }
 
 function resolveDeferredTargetedCardEffect(
@@ -2362,6 +2448,39 @@ function resolveDeferredTargetedCardEffect(
       definition
     );
     if (maybeEndMatch(context)) return;
+  } else if (effect.kind === "COUNTER") {
+    const definitions = effect.definitionIds.map((definitionId) => {
+      const definition = CARD_DEFINITIONS_BY_ID.get(definitionId);
+      if (!definition) {
+        throw new Error(`Unknown counter definition ${definitionId}`);
+      }
+      return definition;
+    });
+    resolveCounterTargetedEffects(
+      context,
+      targetPlayerId,
+      pending.attack.actorId,
+      definitions,
+      effect.receivedDamage
+    );
+    const continuation: Extract<
+      NonNullable<MatchState["pendingAction"]>,
+      { kind: "ATTACK" }
+    > = {
+      kind: "ATTACK",
+      attack: { ...effect.originalAttack },
+      actionOwnerId,
+      targetPlayerIds: [...effect.originalTargetPlayerIds],
+      hitRate: effect.originalHitRate,
+      attackerGrantCount: pending.attackerGrantCount,
+      usedDefenseCardInstanceIds: [...pending.usedDefenseCardInstanceIds],
+      defenseGrantCounts: { ...pending.defenseGrantCounts },
+      revivalGrantCounts: { ...pending.revivalGrantCounts },
+      completion: effect.originalCompletion,
+      deferredTargetedCardEffect: null
+    };
+    advanceAfterAttackStep(context, continuation);
+    return;
   } else if (effect.kind === "SELL") {
     const product = getCard(
       context.state,
@@ -4688,13 +4807,15 @@ function handleReaction(
           totalDefense
         );
   if (pending.attack.attackKind !== "TARGETED_CARD") {
-    applyCounterEffects(
+    if (startCounterReaction(
       context,
       committedPending,
       command.actorId,
       reactionDefinitions,
       receivedDamage
-    );
+    )) {
+      return null;
+    }
   }
   const resolvedPending = context.state.pendingAction;
   if (resolvedPending?.kind !== "ATTACK") {
