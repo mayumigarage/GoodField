@@ -18,12 +18,14 @@ import type { DomainEvent, GameCommand } from "../../shared/src/model.ts";
 import {
   advancePresentationClock,
   applyRealtimePresentationMessage,
-  createPresentationQueue
+  createPresentationQueue,
+  presentationStepsForEvent
 } from "./presentation-queue.ts";
 import type {
   PresentationQueueState,
   PresentationStageKind
 } from "./presentation-queue.ts";
+import { SoundEffectPlayer } from "./sound-effects.ts";
 import {
   actionCardStatus,
   actionPreview,
@@ -297,11 +299,27 @@ function renderCard(
   const status = composingReaction
     ? defenseCardStatus(ui, view, card.instanceId)
     : actionCardStatus(ui, view, card.instanceId);
-  const selectionAttribute = composingReaction
-    ? `data-select-defense-card="${escapeHtml(card.instanceId)}"`
-    : `data-select-card="${escapeHtml(card.instanceId)}"`;
-  const reason = status.invalidReason
-    ? `<span class="gf-card__reason">${escapeHtml(status.invalidReason)}</span>`
+  const exchangeAction =
+    !composingReaction &&
+    ui.mode === "COMPOSING_ACTION" &&
+    !ui.interactionLocked &&
+    !ui.inputDeadlineExpired
+      ? view.self?.legalActions.find(
+          (action) =>
+            action.type === "EXCHANGE_RESOURCES" &&
+            action.cardInstanceIds.includes(card.instanceId)
+        )
+      : null;
+  const opensExchange = exchangeAction?.type === "EXCHANGE_RESOURCES";
+  const selectable = opensExchange || status.selectable;
+  const invalidReason = opensExchange ? null : status.invalidReason;
+  const selectionAttribute = opensExchange
+    ? `data-open-utility="EXCHANGE_RESOURCES" data-utility-card-instance="${escapeHtml(card.instanceId)}"`
+    : composingReaction
+      ? `data-select-defense-card="${escapeHtml(card.instanceId)}"`
+      : `data-select-card="${escapeHtml(card.instanceId)}"`;
+  const reason = invalidReason
+    ? `<span class="gf-card__reason">${escapeHtml(invalidReason)}</span>`
     : "";
   return `
     <li
@@ -315,8 +333,8 @@ function renderCard(
         class="gf-card__button"
         ${selectionAttribute}
         aria-pressed="${String(status.selected)}"
-        ${status.selectable ? "" : "disabled"}
-        ${status.invalidReason ? `title="${escapeHtml(status.invalidReason)}"` : ""}
+        ${selectable ? "" : "disabled"}
+        ${opensExchange ? 'title="両替画面を開く"' : invalidReason ? `title="${escapeHtml(invalidReason)}"` : ""}
       >
         <span class="gf-card__mark" aria-hidden="true">${renderCardArt(
           card.cardDefinitionId,
@@ -748,6 +766,18 @@ function presentationGuardianAction(
     : null;
 }
 
+function presentationResourceEffect(
+  presentation: PresentationQueueState | null
+): ResourceChangedEvent | null {
+  const active = presentation?.activeStep?.step;
+  return active?.kind === "HP_UPDATE" &&
+    active.event.type === "RESOURCE_CHANGED" &&
+    (active.event.resource === "HP" || active.event.resource === "MP") &&
+    active.event.delta !== 0
+    ? active.event
+    : null;
+}
+
 function renderActionRegion(
   view: GameViewState,
   ui: UiInteractionState,
@@ -765,9 +795,15 @@ function renderActionRegion(
     );
   const authoritativePendingAttack = pendingAttack;
   const guardianAction = presentationGuardianAction(presentation);
+  const activeResourceEffect = presentationResourceEffect(presentation);
+  const resourceEffectUsesRecentCard =
+    activeResourceEffect === null ||
+    activeResourceEffect.reason === "CARD_EFFECT" ||
+    activeResourceEffect.reason === "MIRACLE";
   const recentCardUseCandidate =
     !presentedAttack &&
     !guardianAction &&
+    resourceEffectUsesRecentCard &&
     (!pendingAttack || activePresentationKind === "ACTION") &&
     ui.selectedActionCardIds.length === 0 &&
     ui.selectedLearnedMiracleIds.length === 0
@@ -787,6 +823,7 @@ function renderActionRegion(
     authoritativePendingAttack?.targetPlayerId ??
     presentedAttack?.targetPlayerId ??
     guardianAction?.targetPlayerId ??
+    activeResourceEffect?.playerId ??
     (recentCardUse
       ? recentCardUse.targetPlayerId
       : ui.selectedTargetIds[0] ??
@@ -807,6 +844,12 @@ function renderActionRegion(
             ? [...recentCardUse.actionCardDefinitionIds]
             : selectedActionDefinitionIds(view, ui);
   const preview = actionPreview(ui, view);
+  const canPray =
+    !ui.interactionLocked &&
+    ui.mode === "COMPOSING_ACTION" &&
+    ui.selectedActionCardIds.length === 0 &&
+    ui.selectedLearnedMiracleIds.length === 0 &&
+    (view.self?.legalActions.some(({ type }) => type === "PRAY") ?? false);
   const reaction = reactionPreview(ui, view);
   const allDefenseDefinitionIds = locksPresentedAttack
     ? [
@@ -873,9 +916,12 @@ function renderActionRegion(
       ? `${actor.displayName} の行動`
       : "行動待ち";
   const showRoute = !(
-    activePresentationKind === "ACTION" &&
-    recentCardUse !== null
+    (activePresentationKind === "ACTION" &&
+      recentCardUse !== null) ||
+    (activeResourceEffect !== null && recentCardUse === null)
   );
+  const displayedResourceEffect =
+    activeResourceEffect ?? recentCardUse?.recovery ?? null;
   return `
     <section
       class="gf-panel gf-action"
@@ -936,6 +982,20 @@ function renderActionRegion(
               : '<span class="gf-empty-inline">使用する神器・奇跡はまだありません</span>'
           }
         </div>
+        <button
+          type="button"
+          class="gf-action__confirm"
+          data-submit-action
+          ${preview.canSubmit ? "" : "disabled"}
+          ${preview.invalidReason ? `title="${escapeHtml(preview.invalidReason)}"` : ""}
+        >行動を確定</button>
+        <button
+          type="button"
+          class="gf-action__pray"
+          data-submit-pray
+          ${canPray ? "" : "disabled"}
+          title="${canPray ? "神器を1枚授与されます" : "使用可能な武器があるか、現在は行動できません"}"
+        >祈る</button>
         <div
           class="gf-action__stack gf-action__stack--defense"
           data-card-lane="defense"
@@ -948,7 +1008,7 @@ function renderActionRegion(
             .join("")}
           ${
             showForgive
-              ? '<strong class="gf-action__forgive" role="status">許す</strong>'
+              ? '<strong class="gf-action__forgive" data-polarity="negative" role="status">許す</strong>'
               : ""
           }
         </div>
@@ -967,22 +1027,25 @@ function renderActionRegion(
             ? `<div
                 class="gf-action__result"
                 data-result="${presentedAttack.damage.amount === 0 ? "safe" : "damage"}"
+                data-polarity="${presentedAttack.damage.amount === 0 ? "neutral" : "negative"}"
                 role="status"
               >${
                 presentedAttack.damage.amount === 0
                   ? "<strong>無事</strong>"
-                  : `<strong>${presentedAttack.damage.amount}</strong><span>ダメージ</span>`
+                  : `<strong>-${presentedAttack.damage.amount}hp</strong>`
               }</div>`
             : ""
         }
         ${
-          recentCardUse?.recovery
+          displayedResourceEffect
             ? `<div
                 class="gf-action__result"
-                data-result="recovery"
-                data-resource="${recentCardUse.recovery.resource.toLowerCase()}"
+                data-result="${displayedResourceEffect.delta > 0 ? "recovery" : "damage"}"
+                data-polarity="${displayedResourceEffect.delta > 0 ? "positive" : "negative"}"
+                data-resource="${displayedResourceEffect.resource.toLowerCase()}"
+                data-player-id="${escapeHtml(displayedResourceEffect.playerId)}"
                 role="status"
-              ><strong>+${recentCardUse.recovery.delta}</strong><span>${recentCardUse.recovery.resource.toLowerCase()}</span></div>`
+              ><strong>${displayedResourceEffect.delta > 0 ? "+" : ""}${displayedResourceEffect.delta}${displayedResourceEffect.resource.toLowerCase()}</strong></div>`
             : ""
         }
         ${
@@ -1326,6 +1389,64 @@ function playerOption(
   return `<option value="${escapeHtml(playerId)}">${escapeHtml(label)}</option>`;
 }
 
+type ExchangeAllocation = {
+  hp: number;
+  mp: number;
+  money: number;
+};
+
+type AdjustableExchangeResource = "mp" | "money";
+
+export function adjustExchangeAllocation(
+  current: ExchangeAllocation,
+  resourceTotal: number,
+  resource: AdjustableExchangeResource,
+  delta: number
+): ExchangeAllocation | null {
+  if (
+    !Number.isInteger(resourceTotal) ||
+    !Number.isInteger(delta) ||
+    ![current.hp, current.mp, current.money].every(Number.isInteger)
+  ) {
+    return null;
+  }
+  const mp = resource === "mp" ? current.mp + delta : current.mp;
+  const money =
+    resource === "money" ? current.money + delta : current.money;
+  const hp = resourceTotal - mp - money;
+  if (
+    [hp, mp, money].some(
+      (value) => value < 0 || value > 99
+    )
+  ) {
+    return null;
+  }
+  return { hp, mp, money };
+}
+
+function renderExchangeAdjustButton(
+  allocation: ExchangeAllocation,
+  resourceTotal: number,
+  resource: AdjustableExchangeResource,
+  delta: number
+): string {
+  const resourceLabel = resource === "mp" ? "MP" : "所持金";
+  const directionLabel = delta > 0 ? "増やす" : "減らす";
+  const disabled =
+    adjustExchangeAllocation(
+      allocation,
+      resourceTotal,
+      resource,
+      delta
+    ) === null;
+  return `<button
+    type="button"
+    data-exchange-adjust="${resource}:${delta}"
+    aria-label="${resourceLabel}を${Math.abs(delta)}${directionLabel}"
+    ${disabled ? "disabled" : ""}
+  >${delta > 0 ? "+" : ""}${delta}</button>`;
+}
+
 function renderUtilityActions(
   view: GameViewState,
   ui: UiInteractionState
@@ -1371,40 +1492,45 @@ function renderUtilityActions(
   );
   if (exchange?.type === "EXCHANGE_RESOURCES") {
     const selfPlayer = playerById(view, view.self.playerId);
+    const allocation = {
+      hp: selfPlayer?.hp ?? 0,
+      mp: selfPlayer?.mp ?? 0,
+      money: selfPlayer?.money ?? 0
+    };
     forms.push(`
-      <form class="gf-utility-action" data-utility-form="EXCHANGE_RESOURCES">
-        <div class="gf-utility-action__lead" data-utility-kind="exchange">
-          <span aria-hidden="true">▦</span>
-          <strong>両替</strong>
-          <small>HP・MP・¥を同じ合計のまま再配分する</small>
-        </div>
+      <form class="gf-utility-action gf-utility-action--exchange" data-utility-form="EXCHANGE_RESOURCES">
         <select class="sr-only" name="cardInstanceId" aria-label="両替神器">${exchange.cardInstanceIds
           .map((id) => cardOption(view, id)).join("")}</select>
         <div class="gf-exchange" data-exchange-total="${exchange.resourceTotal}">
-          <div class="gf-exchange__buttons" data-resource="hp">
-            <button type="button" data-exchange-adjust="hp:10">+10</button>
-            <button type="button" data-exchange-adjust="hp:1">+1</button>
+          <div class="gf-utility-action__lead" data-utility-kind="exchange">
+            <span aria-hidden="true">両</span>
+            <strong>両替</strong>
+            <small>HP1＝MP1＝¥1</small>
           </div>
-          <div class="gf-exchange__buttons" data-resource="mp">
-            <button type="button" data-exchange-adjust="mp:10">+10</button>
-            <button type="button" data-exchange-adjust="mp:1">+1</button>
+          <div class="gf-exchange__buttons" data-resource="mp" data-direction="increase">
+            ${renderExchangeAdjustButton(allocation, exchange.resourceTotal, "mp", 10)}
+            ${renderExchangeAdjustButton(allocation, exchange.resourceTotal, "mp", 1)}
+          </div>
+          <div class="gf-exchange__buttons" data-resource="money" data-direction="increase">
+            ${renderExchangeAdjustButton(allocation, exchange.resourceTotal, "money", 10)}
+            ${renderExchangeAdjustButton(allocation, exchange.resourceTotal, "money", 1)}
           </div>
           <div class="gf-exchange__readout" aria-live="polite">
-            <span>HP <output data-exchange-output="hp">${selfPlayer?.hp ?? 0}</output></span>
-            <span>MP <output data-exchange-output="mp">${selfPlayer?.mp ?? 0}</output></span>
-            <span>¥ <output data-exchange-output="money">${selfPlayer?.money ?? 0}</output></span>
+            <span>HP <output data-exchange-output="hp">${allocation.hp}</output></span>
+            <span>MP <output data-exchange-output="mp">${allocation.mp}</output></span>
+            <span>¥ <output data-exchange-output="money">${allocation.money}</output></span>
           </div>
-          <div class="gf-exchange__buttons" data-resource="hp">
-            <button type="button" data-exchange-adjust="hp:-1">-1</button>
-            <button type="button" data-exchange-adjust="hp:-10">-10</button>
+          <div class="gf-exchange__buttons" data-resource="mp" data-direction="decrease">
+            ${renderExchangeAdjustButton(allocation, exchange.resourceTotal, "mp", -1)}
+            ${renderExchangeAdjustButton(allocation, exchange.resourceTotal, "mp", -10)}
           </div>
-          <div class="gf-exchange__buttons" data-resource="mp">
-            <button type="button" data-exchange-adjust="mp:-1">-1</button>
-            <button type="button" data-exchange-adjust="mp:-10">-10</button>
+          <div class="gf-exchange__buttons" data-resource="money" data-direction="decrease">
+            ${renderExchangeAdjustButton(allocation, exchange.resourceTotal, "money", -1)}
+            ${renderExchangeAdjustButton(allocation, exchange.resourceTotal, "money", -10)}
           </div>
-          <input name="hp" type="hidden" value="${selfPlayer?.hp ?? 0}">
-          <input name="mp" type="hidden" value="${selfPlayer?.mp ?? 0}">
-          <input name="money" type="hidden" value="${selfPlayer?.money ?? 0}">
+          <input name="hp" type="hidden" value="${allocation.hp}">
+          <input name="mp" type="hidden" value="${allocation.mp}">
+          <input name="money" type="hidden" value="${allocation.money}">
         </div>
         <small class="gf-exchange__total">合計 ${exchange.resourceTotal}</small>
         <button type="submit">両替する</button>
@@ -1630,6 +1756,7 @@ export function renderPresentationRegion(
   presentation: PresentationQueueState | null
 ): string {
   if (!presentation?.activeStep) return "";
+  if (presentationResourceEffect(presentation)) return "";
   if (
     presentationAttackScene(presentation) ||
     presentationGuardianAction(presentation)
@@ -1707,11 +1834,6 @@ export function renderBattleScreen(
   const highlightedTargetIds = hasLocalActionSelection
     ? displayedUi.selectedTargetIds
     : view.targetPlayerIds;
-  const canPray =
-    !displayedUi.interactionLocked &&
-    displayedUi.mode === "COMPOSING_ACTION" &&
-    !hasLocalActionSelection &&
-    (view.self?.legalActions.some(({ type }) => type === "PRAY") ?? false);
   const playerMarkup = [...view.players]
     .sort((left, right) => left.seatIndex - right.seatIndex)
     .map((player) =>
@@ -1849,22 +1971,9 @@ export function renderBattleScreen(
     <div class="gf-controls__actions" aria-label="ゲーム操作">
       <button
         type="button"
-        data-submit-pray
-        ${canPray ? "" : "disabled"}
-        title="${canPray ? "神器を1枚授与されます" : "使用可能な武器があるか、現在は行動できません"}"
-      >祈る</button>
-      <button
-        type="button"
         data-focus-targets
         ${preview.targetPlayerIds.length > 1 && !displayedUi.interactionLocked ? "" : "disabled"}
       >対象を選ぶ</button>
-      <button
-        type="button"
-        class="gf-controls__submit"
-        data-submit-action
-        ${preview.canSubmit ? "" : "disabled"}
-        ${preview.invalidReason ? `title="${escapeHtml(preview.invalidReason)}"` : ""}
-      >行動を確定</button>
     </div>
     ${renderUtilityActions(view, displayedUi)}
     ${
@@ -1934,6 +2043,9 @@ export function mountBattleScreen(
   let deadlineTimer: ReturnType<typeof setTimeout> | null = null;
   let renderedDeadlineSeconds: number | null = null;
   let disposed = false;
+  const sounds = new SoundEffectPlayer();
+  const soundedEventSeqs = new Set<number>();
+  let mutedSoundEventSeqThrough = 0;
   const createCommandId = interactions.createCommandId ?? defaultCommandId;
   const now = interactions.now ?? Date.now;
   const update = (next: UiInteractionState): void => {
@@ -1961,6 +2073,36 @@ export function mountBattleScreen(
       button.addEventListener("click", () => {
         const id = button.dataset.selectCard;
         if (id) update(selectActionCard(currentUi, id, currentView));
+      });
+    }
+    for (const button of container.querySelectorAll<HTMLButtonElement>(
+      '[data-open-utility="EXCHANGE_RESOURCES"]'
+    )) {
+      button.addEventListener("click", () => {
+        const details = container.querySelector<HTMLDetailsElement>(
+          ".gf-utility-actions"
+        );
+        const form = details?.querySelector<HTMLFormElement>(
+          '[data-utility-form="EXCHANGE_RESOURCES"]'
+        );
+        if (!details || !form) return;
+        details.open = true;
+        const cardInstanceId = button.dataset.utilityCardInstance;
+        const select = form.querySelector<HTMLSelectElement>(
+          'select[name="cardInstanceId"]'
+        );
+        if (
+          cardInstanceId &&
+          select &&
+          [...select.options].some(({ value }) => value === cardInstanceId)
+        ) {
+          select.value = cardInstanceId;
+        }
+        form
+          .querySelector<HTMLButtonElement>(
+            "[data-exchange-adjust]:not(:disabled)"
+          )
+          ?.focus();
       });
     }
     for (const button of container.querySelectorAll<HTMLElement>(
@@ -2086,7 +2228,7 @@ export function mountBattleScreen(
         const [resource, deltaText] = (
           button.dataset.exchangeAdjust ?? ""
         ).split(":");
-        if (resource !== "hp" && resource !== "mp") return;
+        if (resource !== "mp" && resource !== "money") return;
         const delta = Number(deltaText);
         const total = Number(exchange.dataset.exchangeTotal);
         const hpInput = form.querySelector<HTMLInputElement>(
@@ -2107,31 +2249,46 @@ export function mountBattleScreen(
         ) {
           return;
         }
-        const hp = Number(hpInput.value);
-        const mp = Number(mpInput.value);
-        const nextHp = resource === "hp" ? hp + delta : hp;
-        const nextMp = resource === "mp" ? mp + delta : mp;
-        const nextMoney = total - nextHp - nextMp;
-        if (
-          [nextHp, nextMp, nextMoney].some(
-            (value) =>
-              !Number.isInteger(value) || value < 0 || value > 99
-          )
-        ) {
-          return;
-        }
-        hpInput.value = String(nextHp);
-        mpInput.value = String(nextMp);
-        moneyInput.value = String(nextMoney);
+        const next = adjustExchangeAllocation(
+          {
+            hp: Number(hpInput.value),
+            mp: Number(mpInput.value),
+            money: Number(moneyInput.value)
+          },
+          total,
+          resource,
+          delta
+        );
+        if (!next) return;
+        hpInput.value = String(next.hp);
+        mpInput.value = String(next.mp);
+        moneyInput.value = String(next.money);
         for (const [name, value] of [
-          ["hp", nextHp],
-          ["mp", nextMp],
-          ["money", nextMoney]
+          ["hp", next.hp],
+          ["mp", next.mp],
+          ["money", next.money]
         ] as const) {
           const output = form.querySelector<HTMLOutputElement>(
             `[data-exchange-output="${name}"]`
           );
           if (output) output.value = String(value);
+        }
+        for (const adjustButton of form.querySelectorAll<HTMLButtonElement>(
+          "[data-exchange-adjust]"
+        )) {
+          const [adjustResource, adjustDeltaText] = (
+            adjustButton.dataset.exchangeAdjust ?? ""
+          ).split(":");
+          if (adjustResource !== "mp" && adjustResource !== "money") {
+            continue;
+          }
+          adjustButton.disabled =
+            adjustExchangeAllocation(
+              next,
+              total,
+              adjustResource,
+              Number(adjustDeltaText)
+            ) === null;
         }
       });
     }
@@ -2245,6 +2402,43 @@ export function mountBattleScreen(
     }
   };
 
+  const playInteractionSound = (event: MouseEvent): void => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const button = target.closest<HTMLButtonElement>("button");
+    if (!button || button.disabled) return;
+    if (
+      button.matches(
+        "[data-select-card], [data-select-miracle], [data-select-defense-card], [data-select-defense-miracle]"
+      )
+    ) {
+      sounds.play("card");
+    } else if (button.matches("[data-select-target]")) {
+      sounds.play("target");
+    } else if (button.matches("[data-exchange-adjust]")) {
+      sounds.play("toggle");
+    } else {
+      sounds.play("button");
+    }
+  };
+  container.addEventListener("click", playInteractionSound);
+
+  const playEventSound = (event: DomainEvent): void => {
+    if (
+      event.eventSeq <= mutedSoundEventSeqThrough ||
+      soundedEventSeqs.has(event.eventSeq)
+    ) {
+      return;
+    }
+    soundedEventSeqs.add(event.eventSeq);
+    sounds.playEvents([event], currentView.self?.playerId ?? null);
+  };
+
+  const playCurrentPresentationSound = (): void => {
+    const event = presentation.activeStep?.step.event;
+    if (event) playEventSound(event);
+  };
+
   const stopDeadlineTimer = (): void => {
     if (deadlineTimer === null) return;
     clearTimeout(deadlineTimer);
@@ -2285,6 +2479,7 @@ export function mountBattleScreen(
     );
     const presentationChanged = nextPresentation !== presentation;
     presentation = nextPresentation;
+    if (presentationChanged) playCurrentPresentationSound();
     const next = advanceUiClock(currentUi, currentView, nowMs);
     if (next !== currentUi) {
       update(next);
@@ -2316,12 +2511,26 @@ export function mountBattleScreen(
     },
     applyRealtimeMessage(message, nowMs = now()) {
       if (disposed || message.type === "SYNC_ERROR") return;
+      currentView = message.snapshot;
+      if (message.type === "FULL_SNAPSHOT") {
+        mutedSoundEventSeqThrough = Math.max(
+          mutedSoundEventSeqThrough,
+          message.eventSeq
+        );
+      }
       presentation = applyRealtimePresentationMessage(
         presentation,
         message,
         nowMs
       );
-      currentView = message.snapshot;
+      if (message.type === "EVENT_BATCH") {
+        for (const event of message.events) {
+          if (presentationStepsForEvent(event).length === 0) {
+            playEventSound(event);
+          }
+        }
+      }
+      playCurrentPresentationSound();
       const nextUi = synchronizeUiState(currentUi, currentView);
       if (nextUi === currentUi) {
         renderAndBind();
@@ -2341,6 +2550,7 @@ export function mountBattleScreen(
       if (disposed) return;
       disposed = true;
       stopDeadlineTimer();
+      container.removeEventListener("click", playInteractionSound);
     },
     getUiState() {
       return currentUi;
@@ -3724,15 +3934,65 @@ export const BATTLE_SCREEN_STYLES = `
   visibility: hidden;
 }
 
+.gf-action__confirm,
+.gf-action__pray {
+  position: absolute;
+  z-index: 6;
+  inset-block: 0;
+  inset-inline-start: 0;
+  inline-size: 46.875%;
+  block-size: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  color: transparent;
+  background: transparent;
+  cursor: pointer;
+}
+
+.gf-action__confirm:disabled,
+.gf-action__pray:disabled {
+  display: none;
+}
+
+.gf-action__confirm:hover,
+.gf-action__pray:hover,
+.gf-response__actions [data-submit-reaction]:not(:disabled):hover,
+.gf-response__actions [data-submit-forgive]:not(:disabled):hover {
+  background: rgb(238 255 238 / 18%);
+  box-shadow: inset 0 0 0 2px rgb(238 255 238 / 28%);
+}
+
+.gf-action__confirm:focus-visible,
+.gf-action__pray:focus-visible {
+  outline: 4px solid #ffbb00;
+  outline-offset: -4px;
+}
+
+.gf-action__pray::after {
+  position: absolute;
+  top: 105.1724%;
+  left: 6.6667%;
+  inline-size: 86.6667%;
+  block-size: 13.7931%;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  color: #eeffee;
+  background: #008f83;
+  box-shadow: 0 2px 0 rgb(125 105 60 / 28%);
+  content: "祈る";
+}
+
 .gf-action__forgive {
   inline-size: 100%;
   min-block-size: 90px;
   display: grid;
   place-content: center;
-  border: 5px solid #55bb99;
+  border: 5px solid #bb4444;
   border-radius: 6px;
-  color: #009966;
-  background: #eeffee;
+  color: #bb0000;
+  background: #ffeeee;
   font-size: clamp(24px, 4.4444cqi, 48px);
 }
 
@@ -3755,6 +4015,19 @@ export const BATTLE_SCREEN_STYLES = `
   box-shadow: 0 8px 18px rgb(0 0 0 / 18%);
   text-align: center;
   transform: translate(-50%, -50%);
+  animation: gf-effect-overlay-enter 180ms ease-out both;
+}
+
+@keyframes gf-effect-overlay-enter {
+  from {
+    opacity: 0;
+    transform: translate(-50%, calc(-50% + 24px));
+  }
+
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%);
+  }
 }
 
 .gf-action__result strong,
@@ -3807,20 +4080,21 @@ export const BATTLE_SCREEN_STYLES = `
   background: #eeffee;
 }
 
-.gf-action__result[data-result="recovery"] {
-  border-color: #009900;
-  color: #009900;
+.gf-action__result[data-polarity="positive"] {
+  border-color: #159447;
+  color: #087a34;
   background: #eeffee;
 }
 
-.gf-action__result[data-result="recovery"] span {
-  color: #009900;
-  text-transform: lowercase;
+.gf-action__result[data-polarity="positive"] strong {
   text-shadow: none;
 }
 
-.gf-action__result[data-result="recovery"] strong {
-  text-shadow: none;
+.gf-action__result[data-result="damage"],
+.gf-action__result[data-polarity="negative"] {
+  border-color: #c83b3b;
+  color: #bb0000;
+  background: #ffeeee;
 }
 
 .gf-action__result[data-result="safe"] strong {
@@ -4095,12 +4369,60 @@ export const BATTLE_SCREEN_STYLES = `
   display: none;
 }
 
+.gf-response__actions:has([data-submit-reaction]:not(:disabled)) {
+  inset: 0;
+  inline-size: 100%;
+  block-size: 100%;
+  grid-auto-columns: 100%;
+  gap: 0;
+}
+
+.gf-response__actions:has([data-submit-forgive]:not(:disabled)) {
+  inset: 0;
+  inline-size: 100%;
+  block-size: 100%;
+  grid-auto-columns: 100%;
+  gap: 0;
+}
+
+.gf-response__actions:has([data-submit-reaction]:not(:disabled)) [data-submit-reaction],
+.gf-response__actions:has([data-submit-forgive]:not(:disabled)) [data-submit-forgive] {
+  inline-size: 100%;
+  block-size: 100%;
+  border-radius: 8px;
+}
+
+.gf-response__actions:has([data-submit-reaction]:not(:disabled)) [data-submit-reaction]:focus-visible,
+.gf-response__actions:has([data-submit-forgive]:not(:disabled)) [data-submit-forgive]:focus-visible {
+  outline: 4px solid #ffbb00;
+  outline-offset: -4px;
+}
+
 .gf-response__actions [data-submit-forgive] {
+  position: relative;
+  color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.gf-response__actions [data-submit-forgive]::after {
+  position: absolute;
+  top: 98.3607%;
+  left: 3.3333%;
+  inline-size: 86.6667%;
+  block-size: 13.1148%;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  color: #eeffee;
   background: #bb4444;
+  box-shadow: 0 2px 0 rgb(125 105 60 / 28%);
+  content: "許す";
 }
 
 .gf-response__actions [data-submit-reaction],
-.gf-controls__actions [data-submit-action] {
+.gf-action__confirm,
+.gf-action__pray {
   color: transparent;
   background: transparent;
   box-shadow: none;
@@ -4402,10 +4724,6 @@ export const BATTLE_SCREEN_STYLES = `
   display: none !important;
 }
 
-.gf-controls__actions [data-submit-pray] {
-  background: #008f83;
-}
-
 .gf-input-status {
   position: absolute;
   right: 0;
@@ -4590,8 +4908,30 @@ export const BATTLE_SCREEN_STYLES = `
 
 .gf-exchange {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.5cqi 1cqi;
+  grid-template-columns: minmax(0, 1.35fr) repeat(2, minmax(0, 0.55fr));
+  grid-template-rows: auto auto auto;
+  gap: 0.7cqi 1.1cqi;
+}
+
+.gf-exchange > .gf-utility-action__lead {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.gf-exchange__buttons[data-resource="mp"] {
+  grid-column: 2;
+}
+
+.gf-exchange__buttons[data-resource="money"] {
+  grid-column: 3;
+}
+
+.gf-exchange__buttons[data-direction="increase"] {
+  grid-row: 1;
+}
+
+.gf-exchange__buttons[data-direction="decrease"] {
+  grid-row: 3;
 }
 
 .gf-exchange__buttons {
@@ -4610,8 +4950,17 @@ export const BATTLE_SCREEN_STYLES = `
   line-height: 1;
 }
 
+.gf-exchange__buttons button:disabled {
+  border-color: #a99b5e;
+  color: #b2aa81;
+  background: #665c24;
+  opacity: 1;
+}
+
 .gf-exchange__readout {
+  grid-row: 2;
   grid-column: 1 / -1;
+  margin-inline-start: 22%;
   padding: 0.5cqi 1cqi;
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -4621,6 +4970,18 @@ export const BATTLE_SCREEN_STYLES = `
   font-size: clamp(11px, 2.2222cqi, 24px);
   font-weight: 700;
   text-align: center;
+}
+
+.gf-exchange__readout span {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0.65cqi;
+}
+
+.gf-exchange__readout output {
+  color: #3f3f3f;
+  font-size: 1.35em;
 }
 
 .gf-exchange__total {

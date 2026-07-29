@@ -372,6 +372,8 @@ export type OnlineLobbyMountOptions = {
   pollIntervalMs?: number;
   clipboard?: Pick<Clipboard, "writeText">;
   onStarted: (snapshot: GameViewState, matchId: string) => void;
+  onLeave?: () => void;
+  onOpenDebugPlayer?: () => void;
   onError?: (message: string) => void;
 };
 
@@ -401,32 +403,92 @@ export function mountOnlineLobby(
       (seat) => seat.participantId === options.participantId
     );
     const isHost = ownSeat?.isHost ?? false;
-    root.innerHTML = `
-      <section class="online-lobby" aria-labelledby="online-lobby-title">
-        <header>
-          <p class="eyebrow">${
-            room.accessMode === "PASSPHRASE"
-              ? "合言葉で集まるオンライン対戦"
-              : "招待制オンライン対戦"
-          }</p>
-          <h1 id="online-lobby-title">${
-            room.accessMode === "PASSPHRASE"
-              ? "隠れ乱闘"
-              : "対戦ルーム"
-          }</h1>
-          <p aria-live="polite">${
-            room.status === "OPEN"
-              ? room.accessMode === "PASSPHRASE"
-                ? "参加者を待っています。"
-                : "参加者の準備を待っています。"
-              : room.status === "STARTING"
-                ? "試合を準備しています…"
-                : room.status === "STARTED"
-                  ? "試合が始まりました。"
-                  : "このルームは期限切れです。"
-          }</p>
-        </header>
+    const hiddenBrawl = room.accessMode === "PASSPHRASE";
+    const soundMeter = Array.from(
+      { length: 10 },
+      () => '<span aria-hidden="true"></span>'
+    ).join("");
+    const seats = room.seats.map((seat) => `
+      <li class="lobby-seat${
+        seat.participantId === options.participantId
+          ? " lobby-seat--self"
+          : ""
+      }${seat.participantId === null ? " lobby-seat--empty" : ""}">
+        <span class="lobby-seat__number">席 ${seat.seatIndex + 1}</span>
+        <strong>${escapeHtml(
+          seat.displayName ??
+            (seat.controller === "CPU" ? "CPU" : "空席")
+        )}</strong>
+        <span class="lobby-seat__state">${
+          hiddenBrawl
+            ? seat.participantId === null
+              ? "参加待ち"
+              : seat.teamId === null
+                ? "個人戦"
+                : `チーム ${seat.teamId.slice(-1)}`
+            : seat.controller === "CPU"
+              ? "CPU"
+              : seat.ready
+                ? "準備完了"
+                : seat.participantId
+                  ? "準備中"
+                  : "参加待ち"
+        }</span>
+        ${seat.isHost ? '<span class="lobby-seat__host">ホスト</span>' : ""}
         ${
+          !hiddenBrawl &&
+          isHost &&
+          seat.participantId === null
+            ? `<button type="button" data-seat="${seat.seatIndex}"
+                 data-controller="${seat.controller === "CPU" ? "EMPTY" : "CPU"}">
+                 ${seat.controller === "CPU" ? "空席に戻す" : "CPUにする"}
+               </button>`
+            : ""
+        }
+      </li>
+    `).join("");
+    root.innerHTML = `
+      <section class="gf-site-frame gf-site-frame--lobby"
+        aria-labelledby="online-lobby-title">
+        <header class="gf-chrome-bar gf-chrome-bar--top">
+          <button type="button"
+            class="gf-chrome-bar__slot gf-chrome-bar__slot--back"
+            data-leave-lobby aria-label="前の画面へ戻る">←</button>
+          <strong class="gf-chrome-bar__title">${
+            hiddenBrawl ? "隠れ乱闘" : "対戦ルーム"
+          }</strong>
+          <a class="gf-chrome-bar__slot" href="/rulebook"
+            aria-label="教典を開く">
+            <span class="gf-book-icon" aria-hidden="true"></span>
+            教典
+          </a>
+        </header>
+        <div class="gf-stage gf-stage--lobby">
+          <section class="online-lobby${
+            hiddenBrawl ? " online-lobby--hidden" : ""
+          }">
+            <header class="online-lobby__status">
+              <p class="eyebrow">${
+                hiddenBrawl
+                  ? "合言葉で集まるオンライン対戦"
+                  : "招待制オンライン対戦"
+              }</p>
+              <h1 id="online-lobby-title">${
+                hiddenBrawl ? "隠れ乱闘" : "対戦ルーム"
+              }</h1>
+              <p aria-live="polite">${
+                room.status === "OPEN"
+                  ? hiddenBrawl
+                    ? "参加者を待っています"
+                    : "参加者の準備を待っています"
+                  : room.status === "STARTING"
+                    ? "試合を準備しています…"
+                    : room.status === "STARTED"
+                      ? "試合が始まりました"
+                      : "このルームは期限切れです"
+              }</p>
+            </header>
+            ${
           options.inviteUrl && isHost
             ? `<div class="invite-row">
                 <label>招待URL
@@ -437,53 +499,23 @@ export function mountOnlineLobby(
               </div>`
             : ""
         }
-        <ol class="lobby-seats" aria-label="参加者一覧">
-          ${room.seats.map((seat) => `
-            <li>
-              <span>席 ${seat.seatIndex + 1}</span>
-              <strong>${escapeHtml(
-                seat.displayName ??
-                  (seat.controller === "CPU" ? "CPU" : "空席")
-              )}</strong>
-              <span>${
-                room.accessMode === "PASSPHRASE"
-                  ? seat.participantId === null
-                    ? "参加待ち"
-                    : seat.teamId === null
-                      ? "個人戦"
-                      : `チーム ${seat.teamId.slice(-1)}`
-                  : seat.controller === "CPU"
-                  ? "CPU"
-                  : seat.ready
-                    ? "準備完了"
-                    : seat.participantId
-                      ? "準備中"
-                      : "参加待ち"
-              }</span>
-              ${seat.isHost ? "<span>ホスト</span>" : ""}
-              ${
-                room.accessMode === "INVITATION" &&
-                isHost &&
-                seat.participantId === null
-                  ? `<button type="button" data-seat="${seat.seatIndex}"
-                       data-controller="${seat.controller === "CPU" ? "EMPTY" : "CPU"}">
-                       ${seat.controller === "CPU" ? "空席に戻す" : "CPUにする"}
-                     </button>`
-                  : ""
-              }
-            </li>
-          `).join("")}
-        </ol>
         ${
-          room.accessMode === "PASSPHRASE" && ownSeat
-            ? `<div class="hidden-brawl-controls">
-                <section aria-labelledby="individual-battle-title">
+          hiddenBrawl && ownSeat
+            ? `<div class="hidden-brawl-arena">
+                <section class="hidden-brawl-choice hidden-brawl-choice--solo"
+                  aria-labelledby="individual-battle-title">
                   <h2 id="individual-battle-title">個人戦</h2>
                   <button type="button" data-team-choice=""
                     aria-pressed="${String(ownSeat.teamId === null)}"
-                    aria-label="個人戦を選ぶ">●</button>
+                    aria-label="個人戦を選ぶ">
+                    <span aria-hidden="true">●</span>
+                  </button>
                 </section>
-                <section aria-labelledby="team-battle-title">
+                <ol class="lobby-seats" aria-label="参加者一覧">
+                  ${seats}
+                </ol>
+                <section class="hidden-brawl-choice hidden-brawl-choice--teams"
+                  aria-labelledby="team-battle-title">
                   <h2 id="team-battle-title">チーム戦</h2>
                   <div class="hidden-brawl-teams">
                     ${[
@@ -512,17 +544,27 @@ export function mountOnlineLobby(
                     ).join("")}
                   </select>
                 </label>
-                ${
-                  isHost
+                <div class="hidden-brawl-main-actions">
+                  ${isHost
                     ? `<button type="button" data-shuffle-teams>
-                        チームをシャッフル
-                      </button>`
-                    : ""
-                }
+                         チームをシャッフル
+                       </button>
+                       <button type="button" data-start
+                         ${room.canStart ? "" : "disabled"}>
+                         戦いを始める
+                       </button>`
+                    : '<p class="hidden-brawl-waiting">主催者の開始を待っています</p>'}
+                </div>
+                ${options.onOpenDebugPlayer
+                  ? `<button type="button" class="hidden-brawl-debug"
+                       data-open-debug-player>
+                       デバッグ：2人目を開く
+                     </button>`
+                  : ""}
               </div>`
-            : ""
+            : `<ol class="lobby-seats" aria-label="参加者一覧">${seats}</ol>`
         }
-        <div class="lobby-actions">
+        <div class="lobby-actions${hiddenBrawl ? " sr-only" : ""}">
           ${
             room.accessMode === "INVITATION" && ownSeat
               ? `<button type="button" data-ready>
@@ -531,7 +573,7 @@ export function mountOnlineLobby(
               : ""
           }
           ${
-            isHost
+            isHost && !hiddenBrawl
               ? `<button type="button" data-start
                    ${room.canStart ? "" : "disabled"}>
                    試合を開始
@@ -539,9 +581,26 @@ export function mountOnlineLobby(
               : ""
           }
         </div>
+          </section>
+        </div>
+        <footer class="gf-chrome-bar gf-chrome-bar--bottom">
+          <span class="gf-chrome-bar__left">${escapeHtml(
+            ownSeat?.displayName ?? "観戦者"
+          )}</span>
+          <span class="gf-lobby-broadcast">▤ 全体にお告げ</span>
+          <span class="gf-sound-meter" aria-label="音量">${soundMeter}</span>
+        </footer>
       </section>
     `;
 
+    root.querySelector("[data-leave-lobby]")?.addEventListener(
+      "click",
+      () => options.onLeave?.()
+    );
+    root.querySelector("[data-open-debug-player]")?.addEventListener(
+      "click",
+      () => options.onOpenDebugPlayer?.()
+    );
     root.querySelector("[data-copy-invite]")?.addEventListener(
       "click",
       () => {

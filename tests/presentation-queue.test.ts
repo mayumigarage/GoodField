@@ -119,7 +119,7 @@ test("healing and exchange presentations hold for 1,000ms", () => {
   );
   assert.deepEqual(
     hpLoss.map(({ kind, durationMs }) => [kind, durationMs]),
-    [["CALAMITY", 500]]
+    [["HP_UPDATE", 1_000]]
   );
 });
 
@@ -656,7 +656,8 @@ test("grant notices are hidden while hand-limit, guardian, and disease keep serv
       [5, "GUARDIAN"],
       [6, "CALAMITY"],
       [7, "CALAMITY"],
-      [8, "CALAMITY"]
+      [8, "HP_UPDATE"]
     ]
   );
+  assert.equal(queued.pendingSteps.at(-1)?.durationMs, 1_000);
 });

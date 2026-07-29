@@ -436,6 +436,92 @@ a:focus-visible {
   color: #006f8f;
 }
 
+.gf-setup-panel--passphrase {
+  z-index: 4;
+  background: rgb(15 35 31 / 78%);
+}
+
+.gf-setup-panel--passphrase::before {
+  position: absolute;
+  top: 180px;
+  left: 50%;
+  width: 480px;
+  height: 300px;
+  border-radius: 22px;
+  background: #eeffee;
+  box-shadow: 0 18px 45px rgb(0 35 30 / 35%);
+  content: "";
+  transform: translateX(-50%);
+}
+
+.gf-setup-panel--passphrase > h2 {
+  position: absolute;
+  z-index: 1;
+  top: 215px;
+  left: 50%;
+  width: 420px;
+  margin: 0;
+  color: #008f6f;
+  font-size: 24px;
+  transform: translateX(-50%);
+}
+
+.gf-setup-panel--passphrase > p {
+  position: absolute;
+  z-index: 1;
+  top: 246px;
+  left: 50%;
+  width: 420px;
+  margin: 0;
+  color: #34766c;
+  font-size: 14px;
+  transform: translateX(-50%);
+}
+
+.gf-setup-panel--passphrase .gf-setup-form {
+  z-index: 1;
+}
+
+.gf-setup-panel--passphrase .gf-setup-form > label {
+  position: absolute;
+  top: 282px;
+  left: 50%;
+  width: 420px;
+  display: grid;
+  gap: 8px;
+  color: #008f6f;
+  font-size: 20px;
+  font-weight: 800;
+  transform: translateX(-50%);
+}
+
+.gf-setup-panel--passphrase input {
+  height: 36px;
+  border: 2px solid #009878;
+  border-radius: 5px;
+  padding: 2px 8px;
+  color: #007c65;
+  background: #eaff9c;
+  font-size: 23px;
+}
+
+.gf-setup-panel--passphrase .gf-setup-submit {
+  top: 352px;
+  width: 440px;
+  height: 98px;
+  border-color: #009878;
+  color: #eeffee;
+  background: #009878;
+  box-shadow: inset 0 0 0 3px #eeffee;
+  font-size: 52px;
+}
+
+.gf-setup-panel--passphrase .gf-terms-link {
+  top: 455px;
+  color: #d8fff1;
+  font-size: 14px;
+}
+
 .gf-setup-form {
   position: absolute;
   inset: 0;
@@ -768,46 +854,144 @@ a:focus-visible {
   justify-content: flex-end;
 }
 
-.hidden-brawl-controls {
-  margin-top: 1.25rem;
-  display: grid;
-  grid-template-columns: minmax(8rem, 0.75fr) minmax(15rem, 1.5fr);
-  gap: 1rem;
-  align-items: start;
+.gf-site-frame--lobby {
+  margin: 0 auto;
 }
 
-.hidden-brawl-controls section {
-  display: grid;
-  gap: 0.6rem;
+.gf-stage--lobby {
+  background:
+    linear-gradient(rgb(230 255 249 / 22%), rgb(230 255 249 / 22%)),
+    url("/images/goodfield-home.png") center / cover no-repeat;
 }
 
-.hidden-brawl-controls h2 {
-  margin: 0;
-  padding: 0.35rem 0.7rem;
-  border-radius: 0.55rem;
-  color: #eeffee;
-  background: #008f6f;
+.gf-stage--lobby::after {
+  background: rgb(190 255 241 / 22%);
+  backdrop-filter: blur(6px) saturate(0.82);
+}
+
+.gf-lobby-broadcast {
+  justify-self: center;
+  min-width: 170px;
+  height: 24px;
+  border-radius: 5px;
+  color: #008f6f;
+  background: #eeffee;
+  line-height: 24px;
   text-align: center;
 }
 
-.hidden-brawl-controls button,
-.hidden-brawl-end-time select {
-  min-height: 3rem;
-  border: 2px solid #87aa9a;
-  border-radius: 0.7rem;
-  font: inherit;
-  font-weight: 800;
+.online-lobby--hidden {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  width: auto;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  color: #18352f;
+  background: transparent;
+  box-shadow: none;
 }
 
-.hidden-brawl-controls button[aria-pressed="true"] {
-  outline: 4px solid #f5cc5c;
-  outline-offset: 2px;
+.online-lobby--hidden .online-lobby__status {
+  position: absolute;
+  right: 18px;
+  bottom: 2px;
+  z-index: 3;
+  max-width: 300px;
+}
+
+.online-lobby--hidden .online-lobby__status .eyebrow,
+.online-lobby--hidden .online-lobby__status h1 {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0 0 0 0) !important;
+}
+
+.online-lobby--hidden .online-lobby__status p:last-child {
+  margin: 0;
+  border-radius: 16px;
+  padding: 1px 16px;
+  color: #eeffee;
+  background: #008f6f;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.hidden-brawl-arena {
+  position: absolute;
+  inset: 32px 70px 20px;
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr) 200px;
+  grid-template-rows: 390px 90px 86px;
+  column-gap: 30px;
+  align-items: start;
+}
+
+.hidden-brawl-choice {
+  display: grid;
+  gap: 10px;
+}
+
+.hidden-brawl-choice h2 {
+  margin: 0;
+  height: 60px;
+  border-radius: 10px;
+  padding: 4px 12px;
+  color: #eeffee;
+  background: #008f6f;
+  font-size: 40px;
+  line-height: 52px;
+  text-align: center;
+}
+
+.hidden-brawl-choice button,
+.hidden-brawl-end-time select {
+  border: 1px solid #8aa89d;
+  border-radius: 20px;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.hidden-brawl-choice button[aria-pressed="true"] {
+  border-color: #008f6f;
+  box-shadow: 0 0 0 4px #eeffee, 0 0 0 7px #00a888;
+}
+
+.hidden-brawl-choice--solo {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.hidden-brawl-choice--solo button {
+  height: 70px;
+  color: #aaa;
+  background: #eee;
+  font-size: 48px;
+  line-height: 60px;
+}
+
+.hidden-brawl-choice--teams {
+  grid-column: 3;
+  grid-row: 1 / span 2;
 }
 
 .hidden-brawl-teams {
   display: grid;
-  grid-template-columns: repeat(2, minmax(5rem, 1fr));
-  gap: 0.55rem;
+  gap: 10px;
+}
+
+.hidden-brawl-teams button {
+  width: 200px;
+  height: 70px;
+  color: rgb(60 70 66 / 45%);
+  font-size: 50px;
+  line-height: 62px;
 }
 
 .hidden-brawl-teams [data-team="TEAM_1"] {
@@ -827,14 +1011,124 @@ a:focus-visible {
 }
 
 .hidden-brawl-end-time {
+  grid-column: 1;
+  grid-row: 2;
+  width: 200px;
+  height: 70px;
   display: grid;
-  gap: 0.35rem;
+  grid-template-rows: 30px 30px;
+  border: 2px solid #83e1c2;
+  border-radius: 10px;
+  padding: 4px 38px;
+  color: #eeffee;
+  background: #008f6f;
+  font-size: 19px;
+  font-weight: 800;
+  line-height: 26px;
+  text-align: center;
 }
 
-.hidden-brawl-controls > [data-shuffle-teams] {
-  align-self: end;
-  color: #3d3828;
-  background: #c7b576;
+.hidden-brawl-end-time select {
+  width: 120px;
+  height: 28px;
+  border: 0;
+  border-radius: 16px;
+  color: #d46b78;
+  background: #eeffee;
+  text-align: center;
+}
+
+.hidden-brawl-arena .lobby-seats {
+  grid-column: 2;
+  grid-row: 1;
+  width: 280px;
+  justify-self: center;
+  gap: 5px;
+}
+
+.hidden-brawl-arena .lobby-seat {
+  min-height: 0;
+  height: 35px;
+  display: grid;
+  grid-template-columns: 1fr;
+  border: 1px solid #008f6f;
+  border-radius: 18px;
+  padding: 2px 12px;
+  color: #006f5c;
+  background: rgb(220 255 246 / 22%);
+  text-align: center;
+}
+
+.hidden-brawl-arena .lobby-seat--self {
+  background: rgb(238 255 238 / 78%);
+  box-shadow: 0 0 0 2px #008f6f;
+}
+
+.hidden-brawl-arena .lobby-seat--empty strong {
+  color: transparent;
+}
+
+.hidden-brawl-arena .lobby-seat__number,
+.hidden-brawl-arena .lobby-seat__state,
+.hidden-brawl-arena .lobby-seat__host {
+  display: none;
+}
+
+.hidden-brawl-main-actions {
+  grid-column: 2;
+  grid-row: 2 / span 2;
+  width: 480px;
+  justify-self: center;
+  display: grid;
+  gap: 18px;
+}
+
+.hidden-brawl-main-actions button {
+  height: 90px;
+  border: 4px solid #77694b;
+  border-radius: 20px;
+  color: #242522;
+  background: #a69b78;
+  box-shadow: 0 3px 0 rgb(82 70 45 / 35%);
+  font-size: 42px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.hidden-brawl-main-actions [data-shuffle-teams] {
+  height: 62px;
+  font-size: 30px;
+}
+
+.hidden-brawl-main-actions button:disabled {
+  cursor: wait;
+  filter: saturate(0.6);
+  opacity: 0.62;
+}
+
+.hidden-brawl-waiting {
+  margin: 24px 0 0;
+  border-radius: 16px;
+  padding: 14px;
+  color: #eeffee;
+  background: rgb(0 143 111 / 82%);
+  font-weight: 800;
+  text-align: center;
+}
+
+.hidden-brawl-debug {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  min-height: 30px;
+  border: 2px dashed #006f8f;
+  border-radius: 8px;
+  padding: 4px 10px;
+  color: #006f8f;
+  background: rgb(238 255 238 / 88%);
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
 }
 
 .checkbox-row {

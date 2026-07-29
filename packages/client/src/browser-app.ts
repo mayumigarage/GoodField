@@ -295,6 +295,7 @@ export type GoodFieldBrowserAppOptions = {
   document?: Document;
   location?: Location;
   history?: History;
+  openWindow?: (url: string, target: string) => unknown;
   createWebSocket?: (
     url: string,
     protocols: string | string[]
@@ -315,6 +316,10 @@ export function mountGoodFieldBrowserApp(
   const documentObject = options.document ?? document;
   const locationObject = options.location ?? window.location;
   const historyObject = options.history ?? window.history;
+  const openWindow =
+    options.openWindow ??
+    ((url: string, target: string) =>
+      documentObject.defaultView?.open(url, target));
   const storage = options.storage ?? window.localStorage;
   const transport = options.transport ?? createLocalMatchTransport();
   const onlineTransport =
@@ -687,6 +692,13 @@ export function mountGoodFieldBrowserApp(
     lastEventSeq: previous?.lastEventSeq ?? null
   });
 
+  const ownDisplayName = (
+    room: OnlineAdmission["room"],
+    participantId: string | null
+  ): string =>
+    room.seats.find((seat) => seat.participantId === participantId)
+      ?.displayName ?? "Player";
+
   const showOnlineLobby = (
     admission: OnlineAdmission,
     previous?: OnlineBrowserCredential,
@@ -717,6 +729,28 @@ export function mountGoodFieldBrowserApp(
           matchId
         });
       },
+      onLeave() {
+        showStart();
+      },
+      ...(!["127.0.0.1", "localhost"].includes(locationObject.hostname)
+        ? {}
+        : {
+            onOpenDebugPlayer() {
+              const debugUrl = new URL(locationObject.href);
+              debugUrl.hostname =
+                locationObject.hostname === "127.0.0.1"
+                  ? "localhost"
+                  : "127.0.0.1";
+              debugUrl.pathname = "/";
+              debugUrl.hash = "";
+              debugUrl.search = new URLSearchParams({
+                debugPlayer: "2",
+                displayName: `${ownDisplayName(admission.room, admission.participantId)} 2P`,
+                ...(passphrase === undefined ? {} : { passphrase })
+              }).toString();
+              openWindow(debugUrl.href, "goodfield-debug-player-2");
+            }
+          }),
       onError(message) {
         renderNotice(message, "error");
       }
@@ -984,11 +1018,11 @@ export function mountGoodFieldBrowserApp(
       bindOnlineForm();
     };
 
-    const renderHiddenBrawl = (): void => {
+    const renderHiddenBrawl = (initialPassphrase = ""): void => {
       renderFrame(
         "隠れ乱闘",
         `
-          <section class="gf-setup-panel"
+          <section class="gf-setup-panel gf-setup-panel--passphrase"
             aria-labelledby="hidden-brawl-title">
             <h2 id="hidden-brawl-title">部屋の合言葉</h2>
             <p>友達と共有した合言葉を入力してください。</p>
@@ -996,7 +1030,8 @@ export function mountGoodFieldBrowserApp(
               <label>
                 <span>部屋の合言葉</span>
                 <input name="passphrase" maxlength="40"
-                  autocomplete="off" required autofocus>
+                  autocomplete="off" value="${escapeHtml(initialPassphrase)}"
+                  required autofocus>
               </label>
               <button type="submit" class="gf-setup-submit">
                 唱える
@@ -1081,7 +1116,7 @@ export function mountGoodFieldBrowserApp(
       );
       root.querySelector("[data-mode-online]")?.addEventListener(
         "click",
-        renderHiddenBrawl
+        () => renderHiddenBrawl()
       );
       root.querySelector("[data-mode-duel]")?.addEventListener(
         "click",
@@ -1136,7 +1171,17 @@ export function mountGoodFieldBrowserApp(
       });
     }
 
-    renderHome();
+    const debugUrl = new URL(locationObject.href);
+    const debugPlayer = debugUrl.searchParams.get("debugPlayer") === "2";
+    const debugPassphrase =
+      debugUrl.searchParams.get("passphrase")?.trim() ?? "";
+    if (debugPlayer) {
+      displayName =
+        debugUrl.searchParams.get("displayName")?.trim() || "Player 2P";
+      renderHiddenBrawl(debugPassphrase);
+    } else {
+      renderHome();
+    }
   };
 
   const showInvitation = (

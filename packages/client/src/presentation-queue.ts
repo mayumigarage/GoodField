@@ -154,7 +154,11 @@ function definitionsForEvent(
     case "RESOURCE_CHANGED":
       if (
         (event.resource === "HP" || event.resource === "MP") &&
-        event.delta > 0
+        event.delta !== 0 &&
+        !(
+          event.delta < 0 &&
+          (event.reason === "DEMON" || event.reason === "GUARDIAN")
+        )
       ) {
         return [
           {
