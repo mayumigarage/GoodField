@@ -668,6 +668,26 @@ function presentationAttackScene(
   const relatedCalamityDamage = calamitySeparatedFromAttack
     ? null
     : latestCalamityDamage;
+  const latestAttackDamage =
+    activeEvent.type === "RESOURCE_CHANGED" &&
+    ["ABSORPTION", "SELF_DAMAGE", "COUNTER"].includes(activeEvent.reason)
+      ? [...events]
+          .reverse()
+          .find(
+            (event): event is DamageAppliedEvent =>
+              event.type === "DAMAGE_APPLIED" &&
+              !events.some(
+                (boundary) =>
+                  boundary.eventSeq > event.eventSeq &&
+                  boundary.eventSeq < active.eventSeq &&
+                  (boundary.type === "ACTION_DECLARED" ||
+                    boundary.type === "ATTACK_CREATED" ||
+                    boundary.type === "POST_TURN_AUTOMATIC_EFFECTS_STARTED" ||
+                    boundary.type === "GUARDIAN_ACTION_SELECTED" ||
+                    boundary.type === "PHENOMENON_SELECTED")
+              )
+          ) ?? null
+      : null;
   const directAttackId =
     activeEvent.type === "ATTACK_CREATED"
       ? activeEvent.attack.attackId
@@ -676,7 +696,9 @@ function presentationAttackScene(
           activeEvent.type === "REACTION_REQUESTED" ||
           activeEvent.type === "DAMAGE_APPLIED"
         ? activeEvent.attackId
-        : relatedCalamityDamage?.attackId ?? null;
+        : relatedCalamityDamage?.attackId ??
+          latestAttackDamage?.attackId ??
+          null;
   const directReactionId =
     activeEvent.type === "REACTION_DECLARED"
       ? activeEvent.reactionId
@@ -727,7 +749,8 @@ function presentationAttackScene(
           event.type === "REACTION_DECLARED" &&
           (directReactionId
             ? event.reactionId === directReactionId
-            : events.some(
+            : event.reactionId === attackEvent.attack.reactionId ||
+              events.some(
                 (request) =>
                   request.type === "REACTION_REQUESTED" &&
                   request.reactionId === event.reactionId &&
@@ -771,6 +794,73 @@ function presentationAttackScene(
     stageKind: active.kind,
     stageIndex: active.stageIndex
   };
+}
+
+function hasPendingAttackOutcome(
+  presentation: PresentationQueueState,
+  scene: AttackPresentationScene
+): boolean {
+  for (const step of presentation.pendingSteps) {
+    if (
+      step.kind === "ACTION" ||
+      step.kind === "GF_UPDATE" ||
+      step.kind === "GUARDIAN" ||
+      step.kind === "AUTOMATIC_EFFECT" ||
+      step.kind === "DEMON" ||
+      step.kind === "TRADE" ||
+      step.kind === "RESULT" ||
+      (step.kind === "TARGET" &&
+        step.event.type === "ATTACK_CREATED" &&
+        step.event.attack.attackId !== scene.attackEvent.attack.attackId)
+    ) {
+      return false;
+    }
+    if (
+      step.kind === "REACTION" ||
+      (step.kind === "DAMAGE_RESULT" &&
+        step.event.type === "DAMAGE_APPLIED" &&
+        step.event.attackId === scene.attackEvent.attack.attackId) ||
+      (step.kind === "HP_UPDATE" &&
+        step.event.type === "RESOURCE_CHANGED" &&
+        ["ABSORPTION", "SELF_DAMAGE", "COUNTER"].includes(
+          step.event.reason
+        )) ||
+      (step.kind === "CALAMITY" &&
+        "playerId" in step.event &&
+        step.event.playerId === scene.targetPlayerId) ||
+      ((step.kind === "REVIVAL" || step.kind === "ASCENSION") &&
+        "playerId" in step.event &&
+        step.event.playerId === scene.targetPlayerId)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function presentationTurnPlayerId(
+  presentation: PresentationQueueState | null
+): string | null {
+  const active = presentation?.activeStep?.step;
+  if (!active) return null;
+  if (
+    active.kind === "ACTION" &&
+    active.event.type === "ACTION_DECLARED"
+  ) {
+    return active.event.playerId;
+  }
+  const scene = presentationAttackScene(presentation);
+  if (!scene) return null;
+  const isOutcomeStage = [
+    "HIT_RESULT",
+    "REACTION",
+    "DAMAGE_RESULT",
+    "HP_UPDATE",
+    "CALAMITY"
+  ].includes(scene.stageKind);
+  return !isOutcomeStage || hasPendingAttackOutcome(presentation, scene)
+    ? scene.actorId
+    : null;
 }
 
 function presentationGuardianAction(
@@ -918,7 +1008,10 @@ function renderActionRegion(
       ? []
       : allDefenseDefinitionIds;
   const showForgive =
-    presentedAttack?.stageKind === "REACTION" &&
+    presentedAttack !== null &&
+    ["REACTION", "DAMAGE_RESULT", "HP_UPDATE", "CALAMITY"].includes(
+      presentedAttack.stageKind
+    ) &&
     presentedAttack.reaction !== null &&
     allDefenseDefinitionIds.length === 0;
   const attackPower =
@@ -954,7 +1047,9 @@ function renderActionRegion(
   const showRoute = !(
     (activePresentationKind === "ACTION" &&
       recentCardUse !== null) ||
-    (activeResourceEffect !== null && recentCardUse === null)
+    (activeResourceEffect !== null &&
+      recentCardUse === null &&
+      presentedAttack === null)
   );
   const displayedResourceEffect =
     activeResourceEffect ?? recentCardUse?.recovery ?? null;
@@ -1059,7 +1154,9 @@ function renderActionRegion(
             : ""
         }
         ${
-          presentedAttack?.damage && !presentedAttack.calamity
+          presentedAttack?.stageKind === "DAMAGE_RESULT" &&
+          presentedAttack.damage &&
+          !presentedAttack.calamity
             ? `<div
                 class="gf-action__result"
                 data-result="${presentedAttack.damage.amount === 0 ? "safe" : "damage"}"
@@ -1846,7 +1943,19 @@ export function renderBattleScreen(
     !presentationLockedUi.interactionLocked
       ? { ...presentationLockedUi, interactionLocked: true }
       : presentationLockedUi;
-  const activePlayer = playerById(view, view.activePlayerId);
+  const heldTurnPlayerId = presentationTurnPlayerId(visiblePresentation);
+  const displayedView =
+    heldTurnPlayerId === null
+      ? view
+      : {
+          ...view,
+          activePlayerId: heldTurnPlayerId,
+          actingPlayerId: heldTurnPlayerId
+        };
+  const activePlayer = playerById(
+    displayedView,
+    displayedView.activePlayerId
+  );
   const modeName = view.matchMode === "TRAINING" ? "修行" : "オンライン対戦";
   const displayedEndTimeAt =
     view.endTimeAt ?? (view.matchMode === "TRAINING" ? 75 : null);
@@ -1870,15 +1979,22 @@ export function renderBattleScreen(
   const hasLocalActionSelection =
     displayedUi.selectedActionCardIds.length > 0 ||
     displayedUi.selectedLearnedMiracleIds.length > 0;
-  const highlightedTargetIds = hasLocalActionSelection
-    ? displayedUi.selectedTargetIds
-    : view.targetPlayerIds;
+  const presentedTargetId =
+    presentationAttackScene(visiblePresentation)?.targetPlayerId ?? null;
+  const highlightedTargetIds =
+    presentedTargetId !== null
+      ? [presentedTargetId]
+      : visiblePresentation?.activeStep?.step.kind === "ACTION"
+        ? []
+        : hasLocalActionSelection
+          ? displayedUi.selectedTargetIds
+          : view.targetPlayerIds;
   const playerMarkup = [...view.players]
     .sort((left, right) => left.seatIndex - right.seatIndex)
     .map((player) =>
       renderPlayer(
         player,
-        view,
+        displayedView,
         preview.targetPlayerIds,
         highlightedTargetIds,
         displayedUi.interactionLocked

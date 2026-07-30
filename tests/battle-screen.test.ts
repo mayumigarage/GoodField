@@ -1142,6 +1142,13 @@ test("self attacks match the recorded 500/1000ms combat sequence", () => {
   assert.match(actionHtml, /鎖ガマ/u);
   assert.doesNotMatch(actionHtml, /<span class="gf-action__arrow">/u);
   assert.doesNotMatch(actionHtml, /革の服/u);
+  assert.match(
+    actionHtml,
+    new RegExp(
+      `data-player-id="${actorId}"[\\s\\S]*?data-active="true"`,
+      "u"
+    )
+  );
 
   const targetPresentation = advancePresentationClock(
     actionPresentation,
@@ -1149,6 +1156,7 @@ test("self attacks match the recorded 500/1000ms combat sequence", () => {
   );
   const targetHtml = renderBattleScreen(view, ui, {}, targetPresentation);
   assert.match(targetHtml, /data-presentation-stage="TARGET"/u);
+  assert.match(targetHtml, /鎖ガマ/u);
   assert.match(targetHtml, /<span class="gf-action__arrow">➜<\/span>/u);
   assert.doesNotMatch(targetHtml, /革の服/u);
 
@@ -1168,6 +1176,7 @@ test("self attacks match the recorded 500/1000ms combat sequence", () => {
   assert.match(reactionHtml, /鎖ガマ/u);
   assert.match(reactionHtml, /革の服/u);
   assert.match(reactionHtml, /革の帽子/u);
+  assert.match(reactionHtml, /<span class="gf-action__arrow">➜<\/span>/u);
   assert.match(
     reactionHtml,
     /data-card-lane="action"[\s\S]*鎖ガマ[\s\S]*data-card-lane="defense"[\s\S]*革の服[\s\S]*革の帽子/u
@@ -1192,8 +1201,19 @@ test("self attacks match the recorded 500/1000ms combat sequence", () => {
     1_500
   );
   const damageHtml = renderBattleScreen(view, ui, {}, damagePresentation);
+  assert.match(damageHtml, /鎖ガマ/u);
+  assert.match(damageHtml, /革の服/u);
+  assert.match(damageHtml, /革の帽子/u);
+  assert.match(damageHtml, /<span class="gf-action__arrow">➜<\/span>/u);
   assert.match(damageHtml, /data-result="damage"/u);
   assert.match(damageHtml, /<strong>-2hp<\/strong>/u);
+  assert.match(
+    damageHtml,
+    new RegExp(
+      `data-player-id="${view.activePlayerId ?? ""}"[\\s\\S]*?data-active="true"`,
+      "u"
+    )
+  );
   const nextAttackView = {
     ...view,
     phase: "REACTION_SELECTION" as const,
@@ -1266,6 +1286,139 @@ test("self attacks match the recorded 500/1000ms combat sequence", () => {
     settledPresentation
   );
   assert.match(settledDefenderHtml, /data-game-input-disabled="false"/u);
+});
+
+test("attack UI accumulates through an additional outcome overlay before the turn changes", () => {
+  const original = createMatch({
+    matchId: "accumulated-attack-presentation",
+    seed: "accumulated-attack-presentation-seed",
+    players: [
+      { playerId: "attacker", displayName: "Attacker" },
+      { playerId: "defender", displayName: "Defender" }
+    ]
+  }).state;
+  const actorId = original.activePlayerId;
+  assert.ok(actorId);
+  const targetId = original.turnOrder.find(
+    (playerId) => playerId !== actorId
+  );
+  assert.ok(targetId);
+  const state: MatchState = {
+    ...original,
+    players: {
+      ...original.players,
+      [actorId]: {
+        ...original.players[actorId]!,
+        hand: [
+          {
+            instanceId: "absorbing-attack",
+            cardDefinitionId: "ghost-sword",
+            dreamDisguiseCardDefinitionId: null
+          }
+        ]
+      },
+      [targetId]: {
+        ...original.players[targetId]!,
+        hand: []
+      }
+    }
+  };
+  const attack = handleCommand(state, {
+    type: "DECLARE_ACTION",
+    matchId: state.matchId,
+    commandId: "absorbing-action",
+    actorId,
+    expectedRevision: state.revision,
+    cardInstanceIds: ["absorbing-attack"],
+    targetPlayerId: targetId
+  });
+  assert.equal(attack.ok, true);
+  if (!attack.ok || attack.state.pendingAction?.kind !== "ATTACK") return;
+  const reaction = handleCommand(attack.state, {
+    type: "DECLARE_REACTION",
+    matchId: attack.state.matchId,
+    commandId: "absorbing-reaction",
+    actorId: targetId,
+    expectedRevision: attack.state.revision,
+    reactionId: attack.state.pendingAction.attack.reactionId,
+    defenseCardInstanceIds: []
+  });
+  assert.equal(reaction.ok, true);
+  if (!reaction.ok) return;
+  const events = [...attack.events, ...reaction.events].filter(
+    (event) =>
+      event.type === "ACTION_DECLARED" ||
+      event.type === "ATTACK_CREATED" ||
+      event.type === "REACTION_DECLARED" ||
+      event.type === "DAMAGE_APPLIED" ||
+      (event.type === "RESOURCE_CHANGED" &&
+        event.reason === "ABSORPTION")
+  );
+  const view = projectGameView(reaction.state, actorId);
+  const ui = synchronizeUiState(initialUiState(), view);
+  const actionPresentation = enqueuePresentationEvents(
+    createPresentationQueue(),
+    events,
+    view,
+    0
+  );
+  const targetPresentation = advancePresentationClock(
+    actionPresentation,
+    500
+  );
+  const reactionPresentation = advancePresentationClock(
+    targetPresentation,
+    1_000
+  );
+  const damagePresentation = advancePresentationClock(
+    reactionPresentation,
+    1_500
+  );
+  const damageHtml = renderBattleScreen(
+    view,
+    ui,
+    {},
+    damagePresentation
+  );
+
+  assert.match(damageHtml, /ゴーストソード/u);
+  assert.match(damageHtml, /<span class="gf-action__arrow">➜<\/span>/u);
+  assert.match(damageHtml, />許す</u);
+  assert.match(damageHtml, /<strong>-7hp<\/strong>/u);
+  assert.match(
+    damageHtml,
+    new RegExp(
+      `data-player-id="${actorId}"[\\s\\S]*?data-active="true"`,
+      "u"
+    )
+  );
+
+  const absorptionPresentation = advancePresentationClock(
+    damagePresentation,
+    2_500
+  );
+  const absorptionHtml = renderBattleScreen(
+    view,
+    ui,
+    {},
+    absorptionPresentation
+  );
+  assert.match(absorptionHtml, /data-presentation-stage="HP_UPDATE"/u);
+  assert.match(absorptionHtml, /ゴーストソード/u);
+  assert.match(
+    absorptionHtml,
+    /<span class="gf-action__arrow">➜<\/span>/u
+  );
+  assert.match(absorptionHtml, />許す</u);
+  assert.match(absorptionHtml, /<strong>\+7hp<\/strong>/u);
+  assert.doesNotMatch(absorptionHtml, /<strong>-7hp<\/strong>/u);
+  assert.match(
+    absorptionHtml,
+    new RegExp(
+      `data-player-id="${view.activePlayerId ?? ""}"[\\s\\S]*?data-active="true"`,
+      "u"
+    )
+  );
 });
 
 test("self recovery shows the used card and recovered HP or MP while input is locked", () => {
@@ -1453,6 +1606,10 @@ test("forgive and calamity follow the recorded combat timing", () => {
   const damageHtml = renderBattleScreen(view, ui, {}, damagePresentation);
   assert.match(damageHtml, /data-polarity="negative"/u);
   assert.match(damageHtml, /<strong>-5hp<\/strong>/u);
+  assert.match(
+    damageHtml,
+    /class="gf-action__forgive" data-polarity="negative"[^>]*>許す</u
+  );
   assert.doesNotMatch(damageHtml, />ダメージ</u);
 
   const calamityPresentation = advancePresentationClock(
