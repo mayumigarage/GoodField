@@ -362,13 +362,13 @@ test("T-041 virtual server clock pairs online timeout with unlimited training in
   assert.equal(
     processInputDeadline(
       online,
-      "2026-07-26T00:00:14.999Z"
+      "2026-07-26T00:00:29.999Z"
     ).events.length,
     0
   );
   const timedOut = processInputDeadline(
     online,
-    "2026-07-26T00:00:15.000Z"
+    "2026-07-26T00:00:30.000Z"
   );
   assert.equal(timedOut.timedOutPlayerId, onlineActor);
   assert.equal(timedOut.events[0]?.type, "INPUT_TIMED_OUT");
@@ -380,7 +380,7 @@ test("T-041 virtual server clock pairs online timeout with unlimited training in
     commandId: "late-human-command",
     actorId: onlineActor,
     expectedRevision: timedOut.state.revision,
-    occurredAt: "2026-07-26T00:00:15.001Z"
+    occurredAt: "2026-07-26T00:00:30.001Z"
   });
   assert.equal(late.ok, false);
   if (late.ok) return;

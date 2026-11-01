@@ -13,6 +13,11 @@ export type PresentationTimingProfile = {
   resolutionHoldMs: number;
   healingHoldMs: number;
   exchangeHoldMs: number;
+  saleRevealMs: number;
+  saleRouteMs: number;
+  tradeOfferHoldMs: number;
+  tradeSwapMs: number;
+  tradeSettleMs: number;
   exitHoldMs: number;
   localSelectionDelayMs: number;
 };
@@ -26,6 +31,11 @@ export const OFFICIAL_WEB_2026_07_25: PresentationTimingProfile = {
   resolutionHoldMs: 1_000,
   healingHoldMs: 1_000,
   exchangeHoldMs: 1_000,
+  saleRevealMs: 400,
+  saleRouteMs: 600,
+  tradeOfferHoldMs: 1_500,
+  tradeSwapMs: 1_600,
+  tradeSettleMs: 150,
   exitHoldMs: 1_500,
   localSelectionDelayMs: 0
 };
@@ -38,7 +48,12 @@ export const OFFICIAL_WEB_2026_07_26: PresentationTimingProfile = {
   attackResultMs: 1_000,
   resolutionHoldMs: 500,
   healingHoldMs: 1_000,
-  exchangeHoldMs: 1_000,
+  exchangeHoldMs: 1_500,
+  saleRevealMs: 400,
+  saleRouteMs: 600,
+  tradeOfferHoldMs: 1_500,
+  tradeSwapMs: 1_600,
+  tradeSettleMs: 150,
   exitHoldMs: 500,
   localSelectionDelayMs: 0
 };
@@ -53,6 +68,7 @@ export type PresentationStageKind =
   | "REACTION"
   | "DAMAGE_RESULT"
   | "HP_UPDATE"
+  | "EXCHANGE"
   | "REVIVAL"
   | "ASCENSION"
   | "GRANT"
@@ -64,6 +80,32 @@ export type PresentationStageKind =
   | "TRADE"
   | "RESULT"
   | "SYSTEM";
+
+export type TradePresentationStage =
+  | "OFFER"
+  | "CLEAR"
+  | "STAMP"
+  | "SWAP"
+  | "SETTLE";
+
+const BUY_TRADE_STAGES: readonly TradePresentationStage[] = [
+  "OFFER",
+  "CLEAR",
+  "STAMP",
+  "SWAP",
+  "SETTLE"
+];
+const SELL_TRADE_STAGES: readonly TradePresentationStage[] = ["SWAP", "SETTLE"];
+
+export function tradePresentationStage(
+  step: Pick<PresentationStep, "stageIndex" | "stageCount">
+): TradePresentationStage {
+  const stages =
+    step.stageCount === BUY_TRADE_STAGES.length
+      ? BUY_TRADE_STAGES
+      : SELL_TRADE_STAGES;
+  return stages[step.stageIndex] ?? "SETTLE";
+}
 
 export type PresentationStep = {
   stepId: string;
@@ -112,9 +154,27 @@ export function createPresentationQueue(
   };
 }
 
+function isBuyTrade(
+  event: Extract<DomainEvent, { type: "TRADE_PAYMENT_COLLECTED" }>,
+  priorEvents: readonly DomainEvent[]
+): boolean {
+  const declared = [...priorEvents]
+    .reverse()
+    .find(
+      (candidate) =>
+        candidate.eventSeq < event.eventSeq &&
+        candidate.type === "ACTION_DECLARED"
+    );
+  return (
+    declared?.type === "ACTION_DECLARED" &&
+    declared.actionType === "DECLARE_BUY"
+  );
+}
+
 function definitionsForEvent(
   event: DomainEvent,
-  profile: PresentationTimingProfile
+  profile: PresentationTimingProfile,
+  priorEvents: readonly DomainEvent[]
 ): StepDefinition[] {
   switch (event.type) {
     case "MATCH_STARTED":
@@ -122,6 +182,12 @@ function definitionsForEvent(
     case "GF_COUNT_CHANGED":
       return [{ kind: "GF_UPDATE", durationMs: profile.stageGapMs }];
     case "ACTION_DECLARED":
+      if (event.actionType === "SELL_CARD") {
+        return [
+          { kind: "ACTION", durationMs: profile.saleRevealMs },
+          { kind: "ACTION", durationMs: profile.saleRouteMs }
+        ];
+      }
       return [
         {
           kind: "ACTION",
@@ -191,18 +257,26 @@ function definitionsForEvent(
       ];
     case "RESOURCES_EXCHANGED":
       return [
-        {
-          kind: "HP_UPDATE",
-          durationMs: profile.exchangeHoldMs
-        }
+        { kind: "EXCHANGE", durationMs: profile.stageGapMs },
+        { kind: "EXCHANGE", durationMs: profile.stageGapMs },
+        { kind: "EXCHANGE", durationMs: profile.exchangeHoldMs }
       ];
-    case "TRADE_PAYMENT_COLLECTED":
-      return [
-        {
-          kind: "HP_UPDATE",
-          durationMs: profile.stageGapMs
-        }
-      ];
+    case "TRADE_PAYMENT_COLLECTED": {
+      const stages = isBuyTrade(event, priorEvents)
+        ? BUY_TRADE_STAGES
+        : SELL_TRADE_STAGES;
+      return stages.map((stage) => ({
+        kind: "TRADE",
+        durationMs:
+          stage === "OFFER"
+            ? profile.tradeOfferHoldMs
+            : stage === "SWAP"
+              ? profile.tradeSwapMs
+              : stage === "SETTLE"
+                ? profile.tradeSettleMs
+                : profile.stageGapMs
+      }));
+    }
     case "REVIVAL_RESOLVED":
       return [
         {
@@ -222,6 +296,7 @@ function definitionsForEvent(
       ];
     case "GRANT_REQUESTED":
     case "CARD_GRANTED":
+    case "CARD_TRANSFERRED":
       return [];
     case "GRANT_CANCELLED":
     case "HAND_LIMIT_DISCARD":
@@ -254,7 +329,6 @@ function definitionsForEvent(
       ];
     case "TRADE_OFFERED":
     case "TRADE_RESOLVED":
-    case "CARD_TRANSFERRED":
       return [{ kind: "TRADE", durationMs: profile.stageGapMs }];
     case "MATCH_ENDED":
       return [
@@ -270,9 +344,10 @@ function definitionsForEvent(
 
 export function presentationStepsForEvent(
   event: DomainEvent,
-  profile: PresentationTimingProfile = OFFICIAL_WEB_2026_07_26
+  profile: PresentationTimingProfile = OFFICIAL_WEB_2026_07_26,
+  priorEvents: readonly DomainEvent[] = []
 ): PresentationStep[] {
-  const definitions = definitionsForEvent(event, profile);
+  const definitions = definitionsForEvent(event, profile, priorEvents);
   return definitions.map(({ kind, durationMs }, stageIndex) => ({
     stepId: `${event.eventSeq}:${stageIndex}:${kind}`,
     eventSeq: event.eventSeq,
@@ -376,7 +451,7 @@ export function enqueuePresentationEvents(
       .map(({ obligation }) => [obligation.obligationId, obligation.reason])
   );
   const newSteps = newEvents.flatMap((event) =>
-    presentationStepsForEvent(event, advanced.profile)
+    presentationStepsForEvent(event, advanced.profile, recentEvents)
   );
   const pendingSteps = [
     ...advanced.pendingSteps,
@@ -387,10 +462,17 @@ export function enqueuePresentationEvents(
   const newlyConcealedCardInstanceIds = presentationWillPlay
     ? newEvents
         .filter(
-          (event): event is Extract<DomainEvent, { type: "CARD_GRANTED" }> =>
-            event.type === "CARD_GRANTED" &&
-            event.playerId === snapshot.self?.playerId &&
-            grantReasons.get(event.obligationId) !== "INITIAL"
+          (
+            event
+          ): event is Extract<
+            DomainEvent,
+            { type: "CARD_GRANTED" | "CARD_TRANSFERRED" }
+          > =>
+            (event.type === "CARD_GRANTED" &&
+              event.playerId === snapshot.self?.playerId &&
+              grantReasons.get(event.obligationId) !== "INITIAL") ||
+            (event.type === "CARD_TRANSFERRED" &&
+              event.toPlayerId === snapshot.self?.playerId)
         )
         .map(({ card }) => card.instanceId)
     : [];

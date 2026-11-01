@@ -4046,6 +4046,7 @@
       "actionCardDefinitionIds": [
         "sell"
       ],
+      "saleProductCardDefinitionId": "iron-gauntlet",
       "eventSeq": 109,
       "revision": 109,
       "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -7327,6 +7328,9 @@
     {
       "type": "RESOURCES_EXCHANGED",
       "playerId": "player-2",
+      "hpBefore": 32,
+      "mpBefore": 10,
+      "moneyBefore": 20,
       "hpAfter": 32,
       "mpAfter": 10,
       "moneyAfter": 20,
@@ -7459,6 +7463,9 @@
     {
       "type": "RESOURCES_EXCHANGED",
       "playerId": "player-4",
+      "hpBefore": 15,
+      "mpBefore": 5,
+      "moneyBefore": 27,
       "hpAfter": 15,
       "mpAfter": 5,
       "moneyAfter": 27,
@@ -7967,6 +7974,7 @@
       "actionCardDefinitionIds": [
         "sell"
       ],
+      "saleProductCardDefinitionId": "wood-shield",
       "eventSeq": 397,
       "revision": 397,
       "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -8421,6 +8429,7 @@
       "actionCardDefinitionIds": [
         "sell"
       ],
+      "saleProductCardDefinitionId": "wood-shield",
       "eventSeq": 428,
       "revision": 428,
       "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -11125,6 +11134,9 @@
     {
       "type": "RESOURCES_EXCHANGED",
       "playerId": "player-1",
+      "hpBefore": 10,
+      "mpBefore": 0,
+      "moneyBefore": 19,
       "hpAfter": 10,
       "mpAfter": 0,
       "moneyAfter": 19,
@@ -12027,6 +12039,7 @@
       "actionCardDefinitionIds": [
         "sell"
       ],
+      "saleProductCardDefinitionId": "leather-clothes",
       "eventSeq": 691,
       "revision": 691,
       "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -15643,6 +15656,7 @@
             "actionCardDefinitionIds": [
               "sell"
             ],
+            "saleProductCardDefinitionId": "iron-gauntlet",
             "eventSeq": 109,
             "revision": 109,
             "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -19092,6 +19106,9 @@
           {
             "type": "RESOURCES_EXCHANGED",
             "playerId": "player-2",
+            "hpBefore": 32,
+            "mpBefore": 10,
+            "moneyBefore": 20,
             "hpAfter": 32,
             "mpAfter": 10,
             "moneyAfter": 20,
@@ -19231,6 +19248,9 @@
           {
             "type": "RESOURCES_EXCHANGED",
             "playerId": "player-4",
+            "hpBefore": 15,
+            "mpBefore": 5,
+            "moneyBefore": 27,
             "hpAfter": 15,
             "mpAfter": 5,
             "moneyAfter": 27,
@@ -19767,6 +19787,7 @@
             "actionCardDefinitionIds": [
               "sell"
             ],
+            "saleProductCardDefinitionId": "wood-shield",
             "eventSeq": 397,
             "revision": 397,
             "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -20249,6 +20270,7 @@
             "actionCardDefinitionIds": [
               "sell"
             ],
+            "saleProductCardDefinitionId": "wood-shield",
             "eventSeq": 428,
             "revision": 428,
             "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -23086,6 +23108,9 @@
           {
             "type": "RESOURCES_EXCHANGED",
             "playerId": "player-1",
+            "hpBefore": 10,
+            "mpBefore": 0,
+            "moneyBefore": 19,
             "hpAfter": 10,
             "mpAfter": 0,
             "moneyAfter": 19,
@@ -24037,6 +24062,7 @@
             "actionCardDefinitionIds": [
               "sell"
             ],
+            "saleProductCardDefinitionId": "leather-clothes",
             "eventSeq": 691,
             "revision": 691,
             "occurredAt": "2026-07-26T00:00:00.000Z",

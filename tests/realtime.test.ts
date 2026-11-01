@@ -24,7 +24,7 @@ import type {
 } from "../packages/shared/src/protocol.ts";
 
 const NOW = "2026-07-26T03:00:00.000Z";
-const DEADLINE = "2026-07-26T03:00:15.000Z";
+const DEADLINE = "2026-07-26T03:00:30.000Z";
 
 function createdMatch(playerCount = 3) {
   return createMatch({

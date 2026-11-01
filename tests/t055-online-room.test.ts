@@ -367,3 +367,23 @@ test("T-055 hidden-brawl host can toggle list entry while retaining host control
   );
   matches.close();
 });
+
+test("T-055 returnToLobby is a no-op in an open room and rejected mid-match", () => {
+  const now = "2026-07-26T00:00:00.000Z";
+  const { rooms, matches } = services(() => now);
+  const created = rooms.create({
+    displayName: "Host",
+    seatCount: 2,
+    requestId: "create-lobby-return"
+  });
+  assert.equal(rooms.returnToLobby(created.session.session).status, "OPEN");
+  rooms.setSeatController(created.session.session, 1, "CPU");
+  rooms.setReady(created.session.session, true);
+  rooms.start(created.session.session, "start-lobby-return");
+  assert.throws(
+    () => rooms.returnToLobby(created.session.session),
+    (error: unknown) =>
+      error instanceof OnlineRoomError && error.code === "ROOM_STARTED"
+  );
+  matches.close();
+});

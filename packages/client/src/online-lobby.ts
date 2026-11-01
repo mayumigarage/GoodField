@@ -3,6 +3,7 @@ import type {
   GameCommandApiResponse,
   GameViewState
 } from "../../shared/src/protocol.ts";
+import { renderSoundControl } from "./sound-control.ts";
 
 export type OnlineRoomSeat = {
   seatIndex: number;
@@ -85,6 +86,10 @@ export type OnlineRoomTransport = {
     roomId: string,
     csrfToken: string,
     ready: boolean
+  ): Promise<OnlineRoom>;
+  returnToLobby(
+    roomId: string,
+    csrfToken: string
   ): Promise<OnlineRoom>;
   setSeat(
     roomId: string,
@@ -254,6 +259,17 @@ export function createOnlineRoomTransport(
           csrfToken
         ),
         "準備状態を更新できませんでした。"
+      );
+      return body.room;
+    },
+    async returnToLobby(roomId, csrfToken) {
+      const body = await requireSuccess<{ room: OnlineRoom }>(
+        await post(
+          `/api/rooms/${encodeURIComponent(roomId)}/lobby`,
+          {},
+          csrfToken
+        ),
+        "ロビーへ戻れませんでした。"
       );
       return body.room;
     },
@@ -440,10 +456,6 @@ export function mountOnlineLobby(
       room.hostParticipantId === options.participantId ||
       (ownSeat?.isHost ?? false);
     const hiddenBrawl = room.accessMode === "PASSPHRASE";
-    const soundMeter = Array.from(
-      { length: 10 },
-      () => '<span aria-hidden="true"></span>'
-    ).join("");
     const seats = room.seats.map((seat) => `
       <li class="lobby-seat${
         seat.participantId === options.participantId
@@ -629,7 +641,7 @@ export function mountOnlineLobby(
             ownSeat?.displayName ?? "観戦者"
           )}</span>
           <span class="gf-lobby-broadcast">▤ 全体にお告げ</span>
-          <span class="gf-sound-meter" aria-label="音量">${soundMeter}</span>
+          ${renderSoundControl()}
         </footer>
       </section>
     `;

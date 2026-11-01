@@ -149,7 +149,7 @@ function deadlineFor(
   ) {
     return null;
   }
-  return new Date(Date.parse(occurredAt) + 15_000).toISOString();
+  return new Date(Date.parse(occurredAt) + 30_000).toISOString();
 }
 
 function eventWithMetadata(
@@ -1707,6 +1707,9 @@ function handleExchangeResources(
   emit(context, {
     type: "RESOURCES_EXCHANGED",
     playerId: command.actorId,
+    hpBefore: actor.hp,
+    mpBefore: actor.mp,
+    moneyBefore: actor.money,
     hpAfter: command.hp,
     mpAfter: command.mp,
     moneyAfter: command.money
@@ -1765,7 +1768,10 @@ function handleSellCard(
     playerId: command.actorId,
     actionType: command.type,
     targetPlayerId: command.targetPlayerId,
-    actionCardDefinitionIds: [source.definition.cardDefinitionId]
+    actionCardDefinitionIds: [source.definition.cardDefinitionId],
+    saleProductCardDefinitionId:
+      product.instance.dreamDisguiseCardDefinitionId ??
+      product.instance.cardDefinitionId
   });
   emit(context, {
     type: "CARD_CONSUMED",

@@ -2591,6 +2591,7 @@
       "actionCardDefinitionIds": [
         "sell"
       ],
+      "saleProductCardDefinitionId": "iron-armor",
       "eventSeq": 105,
       "revision": 105,
       "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -4018,6 +4019,9 @@
     {
       "type": "RESOURCES_EXCHANGED",
       "playerId": "player-1",
+      "hpBefore": 22,
+      "mpBefore": 15,
+      "moneyBefore": 20,
       "hpAfter": 22,
       "mpAfter": 15,
       "moneyAfter": 20,
@@ -9509,6 +9513,7 @@
             "actionCardDefinitionIds": [
               "sell"
             ],
+            "saleProductCardDefinitionId": "iron-armor",
             "eventSeq": 105,
             "revision": 105,
             "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -11020,6 +11025,9 @@
           {
             "type": "RESOURCES_EXCHANGED",
             "playerId": "player-1",
+            "hpBefore": 22,
+            "mpBefore": 15,
+            "moneyBefore": 20,
             "hpAfter": 22,
             "mpAfter": 15,
             "moneyAfter": 20,

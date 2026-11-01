@@ -54,7 +54,12 @@ test("current presentation profile matches the recorded 500/1000ms combat timing
     attackResultMs: 1_000,
     resolutionHoldMs: 500,
     healingHoldMs: 1_000,
-    exchangeHoldMs: 1_000,
+    exchangeHoldMs: 1_500,
+    saleRevealMs: 400,
+    saleRouteMs: 600,
+    tradeOfferHoldMs: 1_500,
+    tradeSwapMs: 1_600,
+    tradeSettleMs: 150,
     exitHoldMs: 500,
     localSelectionDelayMs: 0
   });
@@ -88,6 +93,9 @@ test("healing and exchange presentations hold for 1,000ms", () => {
       type: "RESOURCES_EXCHANGED",
       eventSeq: 3,
       playerId: "a",
+      hpBefore: 40,
+      mpBefore: 10,
+      moneyBefore: 20,
       hpAfter: 30,
       mpAfter: 20,
       moneyAfter: 20
@@ -115,7 +123,11 @@ test("healing and exchange presentations hold for 1,000ms", () => {
   );
   assert.deepEqual(
     exchange.map(({ kind, durationMs }) => [kind, durationMs]),
-    [["HP_UPDATE", 1_000]]
+    [
+      ["EXCHANGE", 500],
+      ["EXCHANGE", 500],
+      ["EXCHANGE", 1_500]
+    ]
   );
   assert.deepEqual(
     hpLoss.map(({ kind, durationMs }) => [kind, durationMs]),

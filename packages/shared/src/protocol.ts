@@ -94,6 +94,11 @@ export type SelfPrivateView = {
 
 export type MatchResultView = MatchResult;
 
+export type SaleProductView = {
+  cardInstanceId: string;
+  cardDefinitionId: string;
+};
+
 export type PendingAttackView = Pick<
   AttackState,
   | "attackId"
@@ -110,7 +115,9 @@ export type PendingAttackView = Pick<
   | "element"
   | "power"
   | "hit"
->;
+> & {
+  saleProduct: SaleProductView | null;
+};
 
 export type GameViewState = {
   matchId: string;

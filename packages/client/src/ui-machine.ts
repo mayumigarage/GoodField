@@ -20,8 +20,27 @@ export type UiMode =
   | "SPECTATING"
   | "MATCH_RESULT";
 
+export type ExchangeAllocation = {
+  hp: number;
+  mp: number;
+  money: number;
+};
+
+export type ExchangeDraft = ExchangeAllocation & {
+  cardInstanceId: string;
+};
+
+export type TradeDraft = {
+  type: "SELL_CARD" | "DECLARE_BUY";
+  cardInstanceId: string;
+  productCardInstanceId: string | null;
+};
+
 export type UiInteractionState = {
   mode: UiMode;
+  handActionMode: "DISCARD" | "SACRIFICE" | null;
+  exchangeDraft: ExchangeDraft | null;
+  tradeDraft: TradeDraft | null;
   selectedActionCardIds: string[];
   selectedLearnedMiracleIds: string[];
   selectedDefenseCardIds: string[];
@@ -88,6 +107,9 @@ export type PreparedCommand = {
 export function initialUiState(): UiInteractionState {
   return {
     mode: "MATCH_SETUP",
+    handActionMode: null,
+    exchangeDraft: null,
+    tradeDraft: null,
     selectedActionCardIds: [],
     selectedLearnedMiracleIds: [],
     selectedDefenseCardIds: [],
@@ -254,6 +276,8 @@ function withSelectedAction(
     mode: needsTargetChoice ? "CHOOSING_TARGET" : "COMPOSING_ACTION",
     selectedActionCardIds: [...action.cardInstanceIds],
     selectedLearnedMiracleIds: [...action.learnedMiracleIds],
+    exchangeDraft: null,
+    tradeDraft: null,
     selectedTargetIds: targetPlayerId ? [targetPlayerId] : [],
     lastSelectedTargetId: targetPlayerId,
     selectionInvalidReason: null
@@ -267,6 +291,7 @@ function clearSelectedAction(
   return {
     ...current,
     mode: "COMPOSING_ACTION",
+    tradeDraft: null,
     selectedActionCardIds: [],
     selectedLearnedMiracleIds: [],
     selectedTargetIds: [],
@@ -300,6 +325,18 @@ export function synchronizeUiState(
   const synchronized: UiInteractionState = {
     ...current,
     mode,
+    handActionMode:
+      mode === "COMPOSING_ACTION" && !revisionChanged
+        ? current.handActionMode
+        : null,
+    exchangeDraft:
+      mode === "COMPOSING_ACTION" && !revisionChanged
+        ? current.exchangeDraft
+        : null,
+    tradeDraft:
+      mode === "COMPOSING_ACTION" && !revisionChanged
+        ? current.tradeDraft
+        : null,
     selectedActionCardIds:
       mode === "COMPOSING_ACTION" ? current.selectedActionCardIds : [],
     selectedLearnedMiracleIds:
@@ -378,6 +415,7 @@ export function advanceUiClock(
   return {
     ...current,
     mode: "RESOLVING",
+    tradeDraft: null,
     selectedActionCardIds: [],
     selectedLearnedMiracleIds: [],
     selectedDefenseCardIds: [],
@@ -405,7 +443,9 @@ export function selectTarget(
     return current;
   }
   const action = selectedDeclareAction(current, view);
-  const selectableTargets = action?.targetPlayerIds ?? legalTargetIds(view);
+  const trade = tradeActionForDraft(current.tradeDraft, view);
+  const selectableTargets =
+    trade?.targetPlayerIds ?? action?.targetPlayerIds ?? legalTargetIds(view);
   if (!selectableTargets.includes(targetPlayerId)) return current;
   return {
     ...current,
@@ -460,6 +500,232 @@ export function selectActionCard(
     return clearSelectedAction(current);
   }
   return withSelectedAction(current, primaryAction);
+}
+
+export function toggleHandActionMode(
+  current: UiInteractionState,
+  action: "DISCARD" | "SACRIFICE"
+): UiInteractionState {
+  if (
+    current.interactionLocked ||
+    current.inputDeadlineExpired ||
+    current.mode !== "COMPOSING_ACTION"
+  ) {
+    return current;
+  }
+  return {
+    ...current,
+    handActionMode: current.handActionMode === action ? null : action,
+    exchangeDraft: null,
+    tradeDraft: null,
+    selectedActionCardIds: [],
+    selectedLearnedMiracleIds: [],
+    selectedTargetIds: [],
+    selectionInvalidReason: null
+  };
+}
+
+type TradeAction = Extract<
+  NonNullable<GameViewState["self"]>["legalActions"][number],
+  { type: "SELL_CARD" | "DECLARE_BUY" }
+>;
+
+export function tradeActionForDraft(
+  draft: TradeDraft | null,
+  view: GameViewState
+): TradeAction | null {
+  if (!draft) return null;
+  const action = view.self?.legalActions.find(
+    ({ type }) => type === draft.type
+  );
+  return (action?.type === "SELL_CARD" || action?.type === "DECLARE_BUY") &&
+    action.cardInstanceIds.includes(draft.cardInstanceId)
+    ? action
+    : null;
+}
+
+export function toggleTradeDraft(
+  current: UiInteractionState,
+  type: TradeDraft["type"],
+  cardInstanceId: string,
+  view: GameViewState
+): UiInteractionState {
+  if (
+    current.interactionLocked ||
+    current.inputDeadlineExpired ||
+    (current.mode !== "COMPOSING_ACTION" &&
+      current.mode !== "CHOOSING_TARGET")
+  ) {
+    return current;
+  }
+  if (current.tradeDraft?.cardInstanceId === cardInstanceId) {
+    return clearSelectedAction(current);
+  }
+  const draft: TradeDraft = {
+    type,
+    cardInstanceId,
+    productCardInstanceId: null
+  };
+  const action = tradeActionForDraft(draft, view);
+  if (!action) return current;
+  const targetPlayerId =
+    current.lastSelectedTargetId &&
+    action.targetPlayerIds.includes(current.lastSelectedTargetId)
+      ? current.lastSelectedTargetId
+      : action.targetPlayerIds[0] ?? null;
+  return {
+    ...clearSelectedAction(current),
+    handActionMode: null,
+    exchangeDraft: null,
+    tradeDraft: draft,
+    selectedTargetIds: targetPlayerId ? [targetPlayerId] : [],
+    lastSelectedTargetId: targetPlayerId
+  };
+}
+
+export function toggleTradeProduct(
+  current: UiInteractionState,
+  cardInstanceId: string,
+  view: GameViewState
+): UiInteractionState {
+  const draft = current.tradeDraft;
+  const action = tradeActionForDraft(draft, view);
+  if (
+    current.interactionLocked ||
+    !draft ||
+    action?.type !== "SELL_CARD" ||
+    cardInstanceId === draft.cardInstanceId ||
+    !action.productCardInstanceIds.includes(cardInstanceId)
+  ) {
+    return current;
+  }
+  return {
+    ...current,
+    tradeDraft: {
+      ...draft,
+      productCardInstanceId:
+        draft.productCardInstanceId === cardInstanceId ? null : cardInstanceId
+    }
+  };
+}
+
+export function canSubmitTrade(
+  current: UiInteractionState,
+  view: GameViewState
+): boolean {
+  const draft = current.tradeDraft;
+  const action = tradeActionForDraft(draft, view);
+  const targetPlayerId = current.selectedTargetIds[0];
+  if (
+    !draft ||
+    !action ||
+    targetPlayerId === undefined ||
+    !action.targetPlayerIds.includes(targetPlayerId)
+  ) {
+    return false;
+  }
+  return (
+    action.type === "DECLARE_BUY" ||
+    (draft.productCardInstanceId !== null &&
+      draft.productCardInstanceId !== draft.cardInstanceId &&
+      action.productCardInstanceIds.includes(draft.productCardInstanceId))
+  );
+}
+
+export function prepareTradeSubmission(
+  current: UiInteractionState,
+  view: GameViewState,
+  createCommandId: () => string
+): PreparedCommand | null {
+  const draft = current.tradeDraft;
+  const actorId = view.self?.playerId;
+  const targetPlayerId = current.selectedTargetIds[0];
+  if (
+    !draft ||
+    !actorId ||
+    !targetPlayerId ||
+    !canSubmitTrade(current, view) ||
+    current.mode !== "COMPOSING_ACTION" ||
+    current.interactionLocked ||
+    current.inputDeadlineExpired
+  ) {
+    return null;
+  }
+  const commandId = current.awaitingCommandId ?? createCommandId();
+  const base = {
+    matchId: view.matchId,
+    commandId,
+    actorId,
+    expectedRevision: view.revision,
+    cardInstanceId: draft.cardInstanceId,
+    targetPlayerId
+  };
+  if (draft.type === "DECLARE_BUY" || draft.productCardInstanceId === null) {
+    return {
+      ui: lockForCommand(current, commandId),
+      command: { ...base, type: "DECLARE_BUY" }
+    };
+  }
+  return {
+    ui: lockForCommand(current, commandId),
+    command: {
+      ...base,
+      type: "SELL_CARD",
+      productCardInstanceId: draft.productCardInstanceId
+    }
+  };
+}
+
+export function toggleExchangeDraft(
+  current: UiInteractionState,
+  cardInstanceId: string,
+  view: GameViewState
+): UiInteractionState {
+  if (
+    current.interactionLocked ||
+    current.inputDeadlineExpired ||
+    (current.mode !== "COMPOSING_ACTION" &&
+      current.mode !== "CHOOSING_TARGET")
+  ) {
+    return current;
+  }
+  if (current.exchangeDraft?.cardInstanceId === cardInstanceId) {
+    return { ...current, exchangeDraft: null };
+  }
+  const action = view.self?.legalActions.find(
+    ({ type }) => type === "EXCHANGE_RESOURCES"
+  );
+  const player = view.players.find(
+    ({ playerId }) => playerId === view.self?.playerId
+  );
+  if (
+    action?.type !== "EXCHANGE_RESOURCES" ||
+    !action.cardInstanceIds.includes(cardInstanceId) ||
+    !player
+  ) {
+    return current;
+  }
+  return {
+    ...clearSelectedAction(current),
+    handActionMode: null,
+    exchangeDraft: {
+      cardInstanceId,
+      hp: player.hp,
+      mp: player.mp,
+      money: player.money
+    }
+  };
+}
+
+export function updateExchangeDraft(
+  current: UiInteractionState,
+  allocation: ExchangeAllocation
+): UiInteractionState {
+  if (!current.exchangeDraft || current.interactionLocked) return current;
+  return {
+    ...current,
+    exchangeDraft: { ...current.exchangeDraft, ...allocation }
+  };
 }
 
 export function selectLearnedMiracle(
@@ -1022,6 +1288,45 @@ export function prepareDeclareActionSubmission(
       cardInstanceIds: [...current.selectedActionCardIds],
       learnedMiracleIds: [...current.selectedLearnedMiracleIds],
       targetPlayerId
+    }
+  };
+}
+
+export function prepareExchangeSubmission(
+  current: UiInteractionState,
+  view: GameViewState,
+  createCommandId: () => string
+): PreparedCommand | null {
+  const draft = current.exchangeDraft;
+  const actorId = view.self?.playerId;
+  const action = view.self?.legalActions.find(
+    ({ type }) => type === "EXCHANGE_RESOURCES"
+  );
+  if (
+    !draft ||
+    !actorId ||
+    action?.type !== "EXCHANGE_RESOURCES" ||
+    !action.cardInstanceIds.includes(draft.cardInstanceId) ||
+    draft.hp + draft.mp + draft.money !== action.resourceTotal ||
+    current.mode !== "COMPOSING_ACTION" ||
+    current.interactionLocked ||
+    current.inputDeadlineExpired
+  ) {
+    return null;
+  }
+  const commandId = current.awaitingCommandId ?? createCommandId();
+  return {
+    ui: lockForCommand(current, commandId),
+    command: {
+      type: "EXCHANGE_RESOURCES",
+      matchId: view.matchId,
+      commandId,
+      actorId,
+      expectedRevision: view.revision,
+      cardInstanceId: draft.cardInstanceId,
+      hp: draft.hp,
+      mp: draft.mp,
+      money: draft.money
     }
   };
 }

@@ -638,7 +638,7 @@ test("T-040 virtual clock matches recorded 500/1000ms combat boundaries", () => 
   }
 });
 
-test("T-040 keeps training input after 30s and closes online input at 15s", () => {
+test("T-040 keeps training input after 30s and closes online input at 30s", () => {
   const training = createMatch({
     matchId: "t040-training-time",
     seed: "t040-training-time-seed",
@@ -684,13 +684,13 @@ test("T-040 keeps training input after 30s and closes online input at 15s", () =
   const expiredUi = advanceUiClock(
     onlineUi,
     onlineView,
-    Date.parse(NOW) + 15_000
+    Date.parse(NOW) + 30_000
   );
   assert.equal(expiredUi.mode, "RESOLVING");
   assert.equal(expiredUi.inputDeadlineExpired, true);
   const timedOut = processInputDeadline(
     online,
-    "2026-07-26T00:00:15.000Z"
+    "2026-07-26T00:00:30.000Z"
   );
   assert.equal(timedOut.timedOutPlayerId, onlineActor);
   assert.equal(timedOut.state.players[onlineActor]?.controller, "CPU");

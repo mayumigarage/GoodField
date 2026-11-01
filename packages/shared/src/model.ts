@@ -269,6 +269,7 @@ export type DomainEvent =
       actionType: GameCommand["type"];
       targetPlayerId: string | null;
       actionCardDefinitionIds?: string[];
+      saleProductCardDefinitionId?: string;
     })
   | (DomainEventBase & {
       type: "CARD_CONSUMED";
@@ -313,6 +314,9 @@ export type DomainEvent =
   | (DomainEventBase & {
       type: "RESOURCES_EXCHANGED";
       playerId: string;
+      hpBefore: number;
+      mpBefore: number;
+      moneyBefore: number;
       hpAfter: number;
       mpAfter: number;
       moneyAfter: number;

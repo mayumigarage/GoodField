@@ -851,6 +851,30 @@ export class OnlineRoomService {
     return snapshot;
   }
 
+  returnToLobby(session: OnlineSession): OnlineRoomView {
+    const { room } = this.#requireParticipant(session);
+    if (room.status !== "STARTED" || !room.matchId) {
+      return this.#view(room);
+    }
+    if (!this.#matchService.view(room.matchId, null)?.result) {
+      throw new OnlineRoomError(
+        "ROOM_STARTED",
+        "The match has not finished",
+        409
+      );
+    }
+    room.status = "OPEN";
+    room.matchId = null;
+    for (const participant of room.participants.values()) {
+      participant.matchPlayerId = null;
+    }
+    for (const seat of room.seats) {
+      if (seat.controller === "HUMAN") seat.ready = false;
+    }
+    room.updatedAt = this.#clock();
+    return this.#view(room);
+  }
+
   setReady(session: OnlineSession, ready: boolean): OnlineRoomView {
     if (typeof ready !== "boolean") {
       throw new OnlineRoomError(
@@ -1859,7 +1883,7 @@ function roomPath(
   pathname: string
 ): { roomId: string; action: string | null; seatIndex: number | null } | null {
   const match =
-    /^\/api\/rooms\/([^/]+)(?:\/(join|rejoin|spectate|ready|entry|team|shuffle-teams|end-time|start|leave|match|session|invitation|seats)(?:\/([^/]+))?)?\/?$/u
+    /^\/api\/rooms\/([^/]+)(?:\/(join|rejoin|spectate|ready|lobby|entry|team|shuffle-teams|end-time|start|leave|match|session|invitation|seats)(?:\/([^/]+))?)?\/?$/u
       .exec(pathname);
   if (!match?.[1]) return null;
   let roomId: string;
@@ -2179,6 +2203,12 @@ export function createOnlineRoomHttpHandler(
           ok: true,
           room
         });
+        return;
+      }
+      if (request.method === "POST" && route.action === "lobby") {
+        const room = service.returnToLobby(session);
+        commit();
+        writeJson(response, 200, { ok: true, room });
         return;
       }
       if (request.method === "POST" && route.action === "team") {

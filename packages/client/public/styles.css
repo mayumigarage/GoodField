@@ -168,29 +168,72 @@ a:focus-visible {
   content: "✿";
 }
 
-.gf-sound-meter {
+.gf-sound-control {
+  --gf-sound-bar: 10px;
+  --gf-sound-icon: 20px;
   height: 20px;
   display: flex;
   align-items: stretch;
-  gap: 2px;
+  gap: 6px;
   justify-self: end;
   padding-inline: 10px;
 }
 
-.gf-sound-meter::before {
-  content: "◀";
-  margin-right: 2px;
+.gf-sound-control__mute {
+  min-width: 0;
+  min-height: 0;
+  width: var(--gf-sound-icon);
+  display: grid;
+  place-items: center;
+  border: 0;
+  padding: 0;
   color: #eeffee;
-  font-size: 18px;
-  line-height: 20px;
+  background: transparent;
+  cursor: pointer;
 }
 
-.gf-sound-meter span {
-  width: 10px;
+.gf-sound-control__mute svg {
+  width: var(--gf-sound-icon);
+  height: var(--gf-sound-icon);
+  fill: currentColor;
+  stroke-linecap: round;
+}
+
+.gf-sound-control__waves,
+.gf-sound-control__slash {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+}
+
+.gf-sound-control__slash,
+.gf-sound-control[data-muted="true"] .gf-sound-control__waves {
+  display: none;
+}
+
+.gf-sound-control[data-muted="true"] .gf-sound-control__slash {
+  display: inline;
+}
+
+.gf-sound-control__meter {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.gf-sound-control__meter i {
+  width: var(--gf-sound-bar);
   background: #eeffee;
+  opacity: 0.18;
 }
 
-.gf-sound-meter span:nth-last-child(-n + 4) {
+.gf-sound-control__meter i[data-active="true"] {
+  opacity: 1;
+}
+
+.gf-sound-control[data-muted="true"] .gf-sound-control__meter i {
   opacity: 0.18;
 }
 
@@ -454,48 +497,26 @@ a:focus-visible {
   transform: translateX(-50%);
 }
 
-.gf-setup-panel--passphrase > h2 {
-  position: absolute;
-  z-index: 1;
-  top: 215px;
-  left: 50%;
-  width: 420px;
-  margin: 0;
-  color: #008f6f;
-  font-size: 24px;
-  transform: translateX(-50%);
-}
-
-.gf-setup-panel--passphrase > p {
-  position: absolute;
-  z-index: 1;
-  top: 246px;
-  left: 50%;
-  width: 420px;
-  margin: 0;
-  color: #34766c;
-  font-size: 14px;
-  transform: translateX(-50%);
-}
-
 .gf-setup-panel--passphrase .gf-setup-form {
   z-index: 1;
 }
 
 .gf-setup-panel--passphrase .gf-setup-form > label {
   position: absolute;
-  top: 282px;
+  top: 216px;
   left: 50%;
   width: 420px;
   display: grid;
   gap: 8px;
   color: #008f6f;
-  font-size: 20px;
+  font-size: 24px;
   font-weight: 800;
   transform: translateX(-50%);
 }
 
 .gf-setup-panel--passphrase input {
+  width: 100%;
+  min-width: 0;
   height: 36px;
   border: 2px solid #009878;
   border-radius: 5px;
@@ -506,7 +527,7 @@ a:focus-visible {
 }
 
 .gf-setup-panel--passphrase .gf-setup-submit {
-  top: 352px;
+  top: 330px;
   width: 440px;
   height: 98px;
   border-color: #009878;
@@ -1172,8 +1193,8 @@ a:focus-visible {
     width: 70px;
   }
 
-  .gf-sound-meter span {
-    width: 6px;
+  .gf-sound-control {
+    --gf-sound-bar: 6px;
   }
 
   .gf-home-logo {

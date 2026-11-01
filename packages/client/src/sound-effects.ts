@@ -1,4 +1,5 @@
 import type { DomainEvent } from "../../shared/src/model.ts";
+import { soundVolume } from "./sound-control.ts";
 
 export const SOUND_EFFECT_FILES = {
   alert: "alert.mp3",
@@ -26,6 +27,7 @@ export const SOUND_EFFECT_FILES = {
   miss: "miss.mp3",
   mystery: "mystery.mp3",
   noChange: "no_change.mp3",
+  openCover: "open_cover.mp3",
   reflect: "reflect.mp3",
   revive: "revive.mp3",
   target: "target.mp3",
@@ -33,10 +35,26 @@ export const SOUND_EFFECT_FILES = {
   win: "game_win.mp3",
   winner: "winner.mp3",
   worse: "worse.mp3",
+  yenAbsorb: "yen_absorb.mp3",
   yenIncrease: "yen_increase.mp3"
 } as const;
 
 export type SoundEffect = keyof typeof SOUND_EFFECT_FILES;
+
+// The action card sound already covers a replacement card granted by the same
+// command, and the grant is heard when the concealed card is revealed instead.
+// A completed trade conceals its replacement card in the same way.
+export function immediateSoundEvents(
+  events: readonly DomainEvent[]
+): DomainEvent[] {
+  const declaresAction = events.some(
+    ({ type }) =>
+      type === "ACTION_DECLARED" || type === "TRADE_PAYMENT_COLLECTED"
+  );
+  return declaresAction
+    ? events.filter(({ type }) => type !== "CARD_GRANTED")
+    : [...events];
+}
 
 export function soundEffectForEvent(
   event: DomainEvent,
@@ -60,9 +78,10 @@ export function soundEffectForEvent(
       if (event.resource === "MP") return "healMp";
       return "yenIncrease";
     case "RESOURCES_EXCHANGED":
-    case "TRADE_PAYMENT_COLLECTED":
-    case "CARD_TRANSFERRED":
       return "exchange";
+    // The product and the payment move together, so one sound covers both.
+    case "TRADE_PAYMENT_COLLECTED":
+      return "yenAbsorb";
     case "CALAMITY_APPLIED":
       return "harmAdd";
     case "CALAMITIES_REMOVED":
@@ -126,7 +145,6 @@ function browserAudioFactory(source: string): PlayableAudio {
 export class SoundEffectPlayer {
   private readonly createAudio: AudioFactory;
   private readonly basePath: string;
-  private volume = 0.55;
 
   constructor(
     createAudio: AudioFactory = browserAudioFactory,
@@ -140,11 +158,13 @@ export class SoundEffectPlayer {
     if (typeof Audio === "undefined" && this.createAudio === browserAudioFactory) {
       return;
     }
+    const volume = soundVolume();
+    if (volume === 0) return;
     try {
       const audio = this.createAudio(
         `${this.basePath}/${SOUND_EFFECT_FILES[effect]}`
       );
-      audio.volume = this.volume;
+      audio.volume = volume;
       const playback = audio.play();
       if (
         typeof playback === "object" &&

@@ -19,15 +19,19 @@ import {
   advancePresentationClock,
   applyRealtimePresentationMessage,
   createPresentationQueue,
-  presentationStepsForEvent
+  presentationStepsForEvent,
+  tradePresentationStage
 } from "./presentation-queue.ts";
 import type {
   PresentationQueueState,
-  PresentationStageKind
+  PresentationStageKind,
+  TradePresentationStage
 } from "./presentation-queue.ts";
-import { SoundEffectPlayer } from "./sound-effects.ts";
+import { renderSoundControl } from "./sound-control.ts";
+import { immediateSoundEvents, SoundEffectPlayer } from "./sound-effects.ts";
 import {
   actionCardStatus,
+  canSubmitTrade,
   actionPreview,
   advanceUiClock,
   defenseCardStatus,
@@ -38,6 +42,8 @@ import {
   lockForCommand,
   prepareBuyConfirmation,
   prepareDeclareActionSubmission,
+  prepareExchangeSubmission,
+  prepareTradeSubmission,
   preparePraySubmission,
   prepareReactionSubmission,
   reactionPreview,
@@ -47,10 +53,22 @@ import {
   selectDefenseMiracle,
   selectLearnedMiracle,
   selectTarget,
+  toggleExchangeDraft,
+  toggleTradeDraft,
+  toggleTradeProduct,
+  toggleHandActionMode,
+  updateExchangeDraft,
   synchronizeUiState,
+  tradeActionForDraft,
   tradePaymentPreview
 } from "./ui-machine.ts";
-import type { UiInteractionState, UiMode } from "./ui-machine.ts";
+import type {
+  ExchangeAllocation,
+  ExchangeDraft,
+  TradeDraft,
+  UiInteractionState,
+  UiMode
+} from "./ui-machine.ts";
 import { CARD_IMAGE_IDS } from "./card-images.generated.ts";
 
 export type BattleScreenLinks = {
@@ -299,22 +317,73 @@ function renderCard(
   const status = composingReaction
     ? defenseCardStatus(ui, view, card.instanceId)
     : actionCardStatus(ui, view, card.instanceId);
-  const exchangeAction =
+  const handAction =
+    !composingReaction &&
+    ui.mode === "COMPOSING_ACTION" &&
+    ui.handActionMode !== null &&
+    !ui.interactionLocked &&
+    !ui.inputDeadlineExpired
+      ? view.self?.legalActions.find(
+          (action) =>
+            action.type === ui.handActionMode &&
+            action.cardInstanceIds.includes(card.instanceId)
+        )
+      : null;
+  const utilityAction =
     !composingReaction &&
     ui.mode === "COMPOSING_ACTION" &&
     !ui.interactionLocked &&
     !ui.inputDeadlineExpired
       ? view.self?.legalActions.find(
           (action) =>
-            action.type === "EXCHANGE_RESOURCES" &&
+            (
+              action.type === "EXCHANGE_RESOURCES" ||
+              action.type === "SELL_CARD" ||
+              action.type === "DECLARE_BUY"
+            ) &&
             action.cardInstanceIds.includes(card.instanceId)
         )
       : null;
-  const opensExchange = exchangeAction?.type === "EXCHANGE_RESOURCES";
-  const selectable = opensExchange || status.selectable;
-  const invalidReason = opensExchange ? null : status.invalidReason;
-  const selectionAttribute = opensExchange
-    ? `data-open-utility="EXCHANGE_RESOURCES" data-utility-card-instance="${escapeHtml(card.instanceId)}"`
+  const handActionType =
+    handAction?.type === "DISCARD" || handAction?.type === "SACRIFICE"
+      ? handAction.type
+      : null;
+  const utilityActionType =
+    utilityAction?.type === "EXCHANGE_RESOURCES" ||
+    utilityAction?.type === "SELL_CARD" ||
+    utilityAction?.type === "DECLARE_BUY"
+      ? utilityAction.type
+      : null;
+  const selectingHandAction = ui.handActionMode !== null;
+  const exchangeOpen =
+    ui.exchangeDraft?.cardInstanceId === card.instanceId;
+  const tradeDraft = activeTradeDraft(view, ui);
+  const tradeAction = tradeActionForDraft(tradeDraft, view);
+  const isTradeCard = tradeDraft?.cardInstanceId === card.instanceId;
+  const isTradeProductCandidate =
+    tradeAction?.type === "SELL_CARD" &&
+    !isTradeCard &&
+    tradeAction.productCardInstanceIds.includes(card.instanceId);
+  const tradeSelected =
+    isTradeCard || tradeDraft?.productCardInstanceId === card.instanceId;
+  const selectable = tradeDraft
+    ? isTradeCard || isTradeProductCandidate
+    : selectingHandAction
+      ? handActionType !== null
+      : utilityActionType !== null || status.selectable;
+  const invalidReason = tradeDraft
+    ? null
+    : selectingHandAction && handActionType === null
+      ? "この神器は対象外です"
+      : handActionType !== null || utilityActionType !== null
+      ? null
+      : status.invalidReason;
+  const selectionAttribute = isTradeProductCandidate
+    ? `data-select-trade-product="${escapeHtml(card.instanceId)}"`
+    : handActionType
+    ? `data-submit-hand-action="${handActionType}" data-hand-action-card-instance="${escapeHtml(card.instanceId)}"`
+    : utilityActionType
+      ? `data-open-utility="${utilityActionType}" data-utility-card-instance="${escapeHtml(card.instanceId)}"`
     : composingReaction
       ? `data-select-defense-card="${escapeHtml(card.instanceId)}"`
       : `data-select-card="${escapeHtml(card.instanceId)}"`;
@@ -324,7 +393,7 @@ function renderCard(
   return `
     <li
       class="gf-card"
-      data-selected="${String(status.selected)}"
+      data-selected="${String(status.selected || tradeSelected)}"
       data-card-category="${definition?.category ?? "GOODS"}"
       data-card-element="${definition?.element ?? "PHYSICAL"}"
     >
@@ -332,9 +401,9 @@ function renderCard(
         type="button"
         class="gf-card__button"
         ${selectionAttribute}
-        aria-pressed="${String(status.selected)}"
+        aria-pressed="${String(status.selected || exchangeOpen || tradeSelected)}"
         ${selectable ? "" : "disabled"}
-        ${opensExchange ? 'title="両替画面を開く"' : invalidReason ? `title="${escapeHtml(invalidReason)}"` : ""}
+        ${handActionType ? `title="${handActionType === "DISCARD" ? "この神器を捨てる" : "この神器をささげる"}"` : utilityActionType ? 'title="専用画面を開く"' : invalidReason ? `title="${escapeHtml(invalidReason)}"` : ""}
       >
         <span class="gf-card__mark" aria-hidden="true">${renderCardArt(
           card.cardDefinitionId,
@@ -342,7 +411,13 @@ function renderCard(
           "gf-card__image"
         )}</span>
         <span class="gf-card__name">${escapeHtml(text.name)}</span>
-        <span class="gf-card__effect">${escapeHtml(text.effect)}</span>
+        ${
+          tradeDraft
+            ? `<span class="gf-card__effect" data-trade-price>${
+                definition?.price === undefined ? "" : `¥${definition.price}`
+              }</span>`
+            : `<span class="gf-card__effect">${escapeHtml(text.effect)}</span>`
+        }
         ${reason}
       </button>
     </li>`;
@@ -511,6 +586,31 @@ type RecentCardUseScene = {
   recovery: ResourceChangedEvent | null;
 };
 
+type ResourcesExchangedEvent = Extract<
+  DomainEvent,
+  { type: "RESOURCES_EXCHANGED" }
+>;
+
+type ExchangePresentationScene = {
+  event: ResourcesExchangedEvent;
+  stageIndex: number | null;
+};
+
+type TradePaymentEvent = Extract<
+  DomainEvent,
+  { type: "TRADE_PAYMENT_COLLECTED" }
+>;
+
+type TradeTransferEvent = Extract<DomainEvent, { type: "CARD_TRANSFERRED" }>;
+
+type TradePresentationScene = {
+  kind: "SELL" | "BUY";
+  stage: TradePresentationStage;
+  cardDefinitionId: string;
+  price: number;
+  elapsedMs: number;
+};
+
 function actionActivityLabel(actionType: GameCommand["type"]): string {
   switch (actionType) {
     case "DECLARE_ACTION":
@@ -555,6 +655,17 @@ function latestRecentCardUseScene(
     );
   if (!cardUse) return null;
   if (cardUse.type === "ACTION_DECLARED") {
+    const tradeResolved = events.find(
+      (event) =>
+        event.type === "TRADE_RESOLVED" && event.eventSeq > cardUse.eventSeq
+    );
+    if (tradeResolved) return null;
+    if (
+      cardUse.actionType === "EXCHANGE_RESOURCES" &&
+      !presentationExchange(presentation)
+    ) {
+      return null;
+    }
     const recovery =
       active.event.type === "RESOURCE_CHANGED" &&
       active.event.delta > 0 &&
@@ -885,10 +996,192 @@ function presentationResourceEffect(
     : null;
 }
 
+function heldTradePayment(
+  presentation: PresentationQueueState | null
+): TradePaymentEvent | null {
+  if (!presentation) return null;
+  const steps = [
+    ...(presentation.activeStep ? [presentation.activeStep.step] : []),
+    ...presentation.pendingSteps
+  ];
+  const step = steps.find(
+    ({ event }) => event.type === "TRADE_PAYMENT_COLLECTED"
+  );
+  return step?.event.type === "TRADE_PAYMENT_COLLECTED" &&
+    tradePresentationStage(step) !== "SETTLE"
+    ? step.event
+    : null;
+}
+
+function withHeldTradeResources(
+  player: PlayerPublicView,
+  payment: TradePaymentEvent
+): PlayerPublicView {
+  if (player.playerId === payment.payerPlayerId) {
+    return {
+      ...player,
+      hp: player.hp + payment.hpPaid,
+      mp: player.mp + payment.mpPaid,
+      money: player.money + payment.moneyPaid
+    };
+  }
+  return player.playerId === payment.recipientPlayerId
+    ? { ...player, money: Math.max(0, player.money - payment.price) }
+    : player;
+}
+
+function exchangeBeforeAllocation(
+  event: ResourcesExchangedEvent
+): ExchangeAllocation {
+  return {
+    hp: event.hpBefore,
+    mp: event.mpBefore,
+    money: event.moneyBefore
+  };
+}
+
+function presentationExchange(
+  presentation: PresentationQueueState | null
+): ExchangePresentationScene | null {
+  const active = presentation?.activeStep?.step;
+  if (!active) return null;
+  if (
+    active.kind === "EXCHANGE" &&
+    active.event.type === "RESOURCES_EXCHANGED"
+  ) {
+    return { event: active.event, stageIndex: active.stageIndex };
+  }
+  if (
+    active.kind !== "ACTION" ||
+    active.event.type !== "ACTION_DECLARED" ||
+    active.event.actionType !== "EXCHANGE_RESOURCES"
+  ) {
+    return null;
+  }
+  const { playerId } = active.event;
+  const event = presentation.pendingSteps
+    .map((step) => step.event)
+    .find(
+      (candidate): candidate is ResourcesExchangedEvent =>
+        candidate.type === "RESOURCES_EXCHANGED" &&
+        candidate.playerId === playerId
+    );
+  return event ? { event, stageIndex: null } : null;
+}
+
+function transferAfterEvent(
+  presentation: PresentationQueueState,
+  eventSeq: number
+): TradeTransferEvent | null {
+  return (
+    presentation.recentEvents.find(
+      (event): event is TradeTransferEvent =>
+        event.type === "CARD_TRANSFERRED" && event.eventSeq > eventSeq
+    ) ?? null
+  );
+}
+
+function presentationTrade(
+  presentation: PresentationQueueState | null,
+  nowMs: number
+): TradePresentationScene | null {
+  const active = presentation?.activeStep;
+  if (
+    !active ||
+    active.step.kind !== "TRADE" ||
+    active.step.event.type !== "TRADE_PAYMENT_COLLECTED"
+  ) {
+    return null;
+  }
+  const transfer = transferAfterEvent(presentation, active.step.eventSeq);
+  if (!transfer) return null;
+  return {
+    kind: active.step.stageCount > 2 ? "BUY" : "SELL",
+    stage: tradePresentationStage(active.step),
+    cardDefinitionId: transfer.card.cardDefinitionId,
+    price: active.step.event.price,
+    elapsedMs: Math.max(0, nowMs - active.startedAtMs)
+  };
+}
+
+function activeSaleProductDefinitionId(
+  view: GameViewState,
+  presentation: PresentationQueueState | null
+): string | null {
+  const active = presentation?.activeStep?.step;
+  if (active?.kind === "TRADE") return null;
+  if (active?.kind === "ACTION" && active.event.type === "ACTION_DECLARED") {
+    return active.stageIndex > 0
+      ? active.event.saleProductCardDefinitionId ?? null
+      : null;
+  }
+  if (!presentation || !active) {
+    return view.pendingAttack?.saleProduct?.cardDefinitionId ?? null;
+  }
+  const declared = [...presentation.recentEvents]
+    .reverse()
+    .find(
+      (event) =>
+        event.eventSeq <= active.eventSeq && event.type === "ACTION_DECLARED"
+    );
+  return declared?.type === "ACTION_DECLARED"
+    ? declared.saleProductCardDefinitionId ?? null
+    : null;
+}
+
+function presentationTradeFinished(
+  presentation: PresentationQueueState | null
+): boolean {
+  const active = presentation?.activeStep?.step;
+  if (!presentation || !active) return false;
+  const latest = [...presentation.recentEvents]
+    .reverse()
+    .find(
+      ({ eventSeq, type }) =>
+        eventSeq <= active.eventSeq &&
+        (type === "ACTION_DECLARED" || type === "TRADE_RESOLVED")
+    );
+  return latest?.type === "TRADE_RESOLVED";
+}
+
+function renderTradeSwap(
+  kind: TradePresentationScene["kind"],
+  stage: TradePresentationStage,
+  cardDefinitionId: string,
+  price: number | null,
+  elapsedMs: number
+): string {
+  const moving = stage === "SWAP" || stage === "SETTLE";
+  return `
+    <div
+      class="gf-trade-swap"
+      data-trade-kind="${kind}"
+      data-trade-stage="${stage}"
+      style="--gf-trade-delay: ${-elapsedMs}ms"
+    >
+      ${renderFieldCard(cardDefinitionId, "gf-trade-swap__product")}
+      ${
+        moving && price !== null
+          ? `<strong class="gf-trade-swap__coin">¥${price}</strong>`
+          : ""
+      }
+      ${stage === "STAMP" ? '<strong class="gf-trade-swap__stamp" role="status">買う</strong>' : ""}
+      ${kind === "SELL" ? '<strong class="gf-action__forgive gf-action__forgive--trade" role="status">許す</strong>' : ""}
+    </div>`;
+}
+
+function isTradeAttack(sourceCardDefinitionIds: readonly string[]): boolean {
+  return sourceCardDefinitionIds.some(
+    (cardDefinitionId) =>
+      cardDefinitionId === "sell" || cardDefinitionId === "buy"
+  );
+}
+
 function renderActionRegion(
   view: GameViewState,
   ui: UiInteractionState,
-  presentation: PresentationQueueState | null
+  presentation: PresentationQueueState | null,
+  nowMs: number
 ): string {
   const pendingAttack = view.pendingAttack;
   const activePresentationKind =
@@ -922,6 +1215,19 @@ function renderActionRegion(
       : null;
   const guardianAction = presentationGuardianAction(presentation);
   const activeResourceEffect = presentationResourceEffect(presentation);
+  const exchangeScene = presentationExchange(presentation);
+  const exchangeDraft = activeExchangeDraft(view, ui);
+  const showsExchange = exchangeScene !== null || exchangeDraft !== null;
+  const tradeDraft = activeTradeDraft(view, ui);
+  const tradeScene = presentationTrade(presentation, nowMs);
+  const offeredTrade =
+    ui.mode === "CONFIRMING_TRADE"
+      ? view.self?.tradeConfirmation ?? null
+      : null;
+  const saleProductDefinitionId = activeSaleProductDefinitionId(
+    view,
+    presentation
+  );
   const resourceEffectUsesRecentCard =
     activeResourceEffect === null ||
     activeResourceEffect.reason === "CARD_EFFECT" ||
@@ -958,7 +1264,7 @@ function renderActionRegion(
         null);
   const actor = playerById(view, actorId);
   const target = playerById(view, selectedTargetId);
-  const actionCardDefinitionIds = locksPresentedAttack
+  const presentedCardDefinitionIds = locksPresentedAttack
     ? [...presentedAttack.attackEvent.attack.sourceCardDefinitionIds]
     : authoritativePendingAttack
       ? [...authoritativePendingAttack.sourceCardDefinitionIds]
@@ -968,13 +1274,26 @@ function renderActionRegion(
           ? [guardianAction.actionCardDefinitionId]
           : recentCardUse
             ? [...recentCardUse.actionCardDefinitionIds]
-            : selectedActionDefinitionIds(view, ui);
+            : exchangeDraft
+              ? exchangeCardDefinitionIds(view, exchangeDraft)
+              : tradeDraft
+                ? tradeDraftDefinitionIds(view, tradeDraft)
+                : selectedActionDefinitionIds(view, ui);
+  const actionCardDefinitionIds =
+    tradeScene?.kind === "BUY" && tradeScene.stage !== "OFFER"
+      ? []
+      : saleProductDefinitionId !== null &&
+          presentedCardDefinitionIds.includes("sell")
+        ? [...presentedCardDefinitionIds, saleProductDefinitionId]
+        : presentedCardDefinitionIds;
   const preview = actionPreview(ui, view);
   const canPray =
     !ui.interactionLocked &&
     ui.mode === "COMPOSING_ACTION" &&
     ui.selectedActionCardIds.length === 0 &&
     ui.selectedLearnedMiracleIds.length === 0 &&
+    exchangeDraft === null &&
+    tradeDraft === null &&
     (view.self?.legalActions.some(({ type }) => type === "PRAY") ?? false);
   const reaction = reactionPreview(ui, view);
   const allDefenseDefinitionIds = locksPresentedAttack
@@ -1044,7 +1363,8 @@ function renderActionRegion(
     : actor
       ? `${actor.displayName} の行動`
       : "行動待ち";
-  const showRoute = !(
+  const showRoute = showsExchange || !(
+    presentationTradeFinished(presentation) ||
     (activePresentationKind === "ACTION" &&
       recentCardUse !== null) ||
     (activeResourceEffect !== null &&
@@ -1063,7 +1383,13 @@ function renderActionRegion(
       data-presentation-scene="${presentedAttack ? "attack" : guardianAction ? "guardian" : recentCardUse ? "recent-card-use" : "none"}"
       data-presentation-stage="${activePresentationKind ?? "NONE"}"
       data-has-defense="${String(selectedDefenseDefinitionIds.length > 0 || defensePower !== null)}"
-      data-has-route="${String(showRoute && Boolean(actor && target))}"
+      data-has-route="${String(showRoute && Boolean(actor && (target || showsExchange)))}"
+      data-exchange="${String(showsExchange)}"
+      data-trade="${String(
+        tradeScene !== null ||
+          offeredTrade !== null ||
+          isTradeAttack(actionCardDefinitionIds)
+      )}"
       aria-labelledby="gf-action-title"
       aria-live="polite"
     >
@@ -1079,15 +1405,19 @@ function renderActionRegion(
                   ? escapeHtml(actor?.guardian?.guardianName ?? "守護神")
                   : escapeHtml(actor?.displayName ?? "行動待ち")
               }</span>
-              <span class="gf-action__arrow">➜</span>
-              <span class="gf-action__target">${escapeHtml(target?.displayName ?? "対象を選択")}</span>
+              ${
+                showsExchange
+                  ? ""
+                  : `<span class="gf-action__arrow">➜</span>
+              <span class="gf-action__target">${escapeHtml(target?.displayName ?? "対象を選択")}</span>`
+              }
             </div>`
           : ""
       }
       <p class="gf-action__direction sr-only">${escapeHtml(direction)}</p>
       ${
         recentCardUse
-          ? `<p class="gf-action__activity" role="status">${escapeHtml(
+          ? `<p class="gf-action__activity${showsExchange || isTradeAttack(recentCardUse.actionCardDefinitionIds) ? " sr-only" : ""}" role="status">${escapeHtml(
               `${eventPlayerName(view, recentCardUse.activityPlayerId)}が${recentCardUse.activityLabel}`
             )}</p>`
           : ""
@@ -1113,13 +1443,24 @@ function renderActionRegion(
               : '<span class="gf-empty-inline">使用する神器・奇跡はまだありません</span>'
           }
         </div>
-        <button
+        ${
+          exchangeDraft
+            ? '<button type="button" class="gf-action__confirm" data-submit-exchange>両替する</button>'
+            : tradeDraft
+              ? `<button
+          type="button"
+          class="gf-action__confirm"
+          data-submit-trade
+          ${canSubmitTrade(ui, view) ? "" : "disabled"}
+        >${tradeDraft.type === "SELL_CARD" ? "売る" : "買う"}</button>`
+              : `<button
           type="button"
           class="gf-action__confirm"
           data-submit-action
           ${preview.canSubmit ? "" : "disabled"}
           ${preview.invalidReason ? `title="${escapeHtml(preview.invalidReason)}"` : ""}
-        >行動を確定</button>
+        >行動を確定</button>`
+        }
         <button
           type="button"
           class="gf-action__pray"
@@ -1139,10 +1480,37 @@ function renderActionRegion(
             .join("")}
           ${
             showForgive
-              ? '<strong class="gf-action__forgive" data-polarity="negative" role="status">許す</strong>'
+              ? `<strong class="gf-action__forgive${
+                  isTradeAttack(
+                    presentedAttack.attackEvent.attack.sourceCardDefinitionIds
+                  )
+                    ? " gf-action__forgive--trade"
+                    : ""
+                }" data-polarity="negative" role="status">許す</strong>`
               : ""
           }
         </div>
+        ${exchangeDraft ? renderExchangePanel(view, exchangeDraft) : ""}
+        ${exchangeScene ? renderExchangeResult(exchangeScene) : ""}
+        ${
+          tradeScene
+            ? renderTradeSwap(
+                tradeScene.kind,
+                tradeScene.stage,
+                tradeScene.cardDefinitionId,
+                tradeScene.price,
+                tradeScene.elapsedMs
+              )
+            : offeredTrade
+              ? renderTradeSwap(
+                  "BUY",
+                  "OFFER",
+                  offeredTrade.offeredCard.cardDefinitionId,
+                  null,
+                  0
+                )
+              : ""
+        }
         ${
           presentedAttack?.stageKind === "HIT_RESULT" &&
           presentedAttack.hitRoll
@@ -1463,71 +1831,6 @@ function renderInputStatus(
     </p>`;
 }
 
-function cardOption(
-  view: GameViewState,
-  instanceId: string
-): string {
-  const card = view.self?.hand.find(
-    (candidate) => candidate.instanceId === instanceId
-  );
-  const label = card
-    ? cardText(card.cardDefinitionId).name
-    : instanceId;
-  return `<option value="${escapeHtml(instanceId)}">${escapeHtml(label)}</option>`;
-}
-
-function renderUtilityCardChoices(
-  view: GameViewState,
-  instanceIds: readonly string[],
-  inputName = "cardInstanceId"
-): string {
-  return `<fieldset class="gf-utility-card-choices">
-    <legend>神器を選択</legend>
-    ${instanceIds
-      .map((instanceId, index) => {
-        const card = view.self?.hand.find(
-          (candidate) => candidate.instanceId === instanceId
-        );
-        const definition = card
-          ? CARD_DEFINITIONS_BY_ID.get(card.cardDefinitionId)
-          : null;
-        const text = card
-          ? cardText(card.cardDefinitionId)
-          : { name: instanceId, effect: "" };
-        return `
-          <label class="gf-utility-card-choice">
-            <input
-              type="radio"
-              name="${escapeHtml(inputName)}"
-              value="${escapeHtml(instanceId)}"
-              ${index === 0 ? "checked" : ""}
-            >
-            <span class="gf-utility-card-choice__mark" aria-hidden="true">${
-              CARD_CATEGORY_MARKS[definition?.category ?? "GOODS"]
-            }</span>
-            <strong>${escapeHtml(text.name)}</strong>
-            <small>${escapeHtml(text.effect)}</small>
-            <span class="gf-utility-card-choice__price">¥${definition?.price ?? 0}</span>
-          </label>`;
-      })
-      .join("")}
-  </fieldset>`;
-}
-
-function playerOption(
-  view: GameViewState,
-  playerId: string
-): string {
-  const label = playerById(view, playerId)?.displayName ?? playerId;
-  return `<option value="${escapeHtml(playerId)}">${escapeHtml(label)}</option>`;
-}
-
-type ExchangeAllocation = {
-  hp: number;
-  mp: number;
-  money: number;
-};
-
 type AdjustableExchangeResource = "mp" | "money";
 
 export function adjustExchangeAllocation(
@@ -1574,10 +1877,133 @@ function renderExchangeAdjustButton(
     ) === null;
   return `<button
     type="button"
+    class="gf-exchange__adjust"
     data-exchange-adjust="${resource}:${delta}"
+    data-exchange-row="${delta > 0 ? (delta === 10 ? 1 : 2) : delta === -1 ? 4 : 5}"
+    data-exchange-column="${resource === "mp" ? 1 : 2}"
     aria-label="${resourceLabel}を${Math.abs(delta)}${directionLabel}"
     ${disabled ? "disabled" : ""}
   >${delta > 0 ? "+" : ""}${delta}</button>`;
+}
+
+function renderExchangeReadout(
+  allocation: ExchangeAllocation,
+  row: "before" | "after",
+  outputs = false
+): string {
+  const value = (name: keyof ExchangeAllocation): string =>
+    outputs
+      ? `<output data-exchange-output="${name}">${allocation[name]}</output>`
+      : `<b>${allocation[name]}</b>`;
+  return `<div class="gf-exchange__readout" data-exchange-row="${row}">
+    <span>HP ${value("hp")}</span>
+    <span>MP ${value("mp")}</span>
+    <span>¥ ${value("money")}</span>
+  </div>`;
+}
+
+function activeTradeDraft(
+  view: GameViewState,
+  ui: UiInteractionState
+): TradeDraft | null {
+  return view.self &&
+    ui.mode === "COMPOSING_ACTION" &&
+    !ui.interactionLocked &&
+    !ui.inputDeadlineExpired
+    ? ui.tradeDraft
+    : null;
+}
+
+function tradeDraftDefinitionIds(
+  view: GameViewState,
+  draft: TradeDraft
+): string[] {
+  return [draft.cardInstanceId, draft.productCardInstanceId].flatMap(
+    (instanceId) =>
+      view.self?.hand
+        .filter((card) => card.instanceId === instanceId)
+        .map(({ cardDefinitionId }) => cardDefinitionId) ?? []
+  );
+}
+
+function activeExchangeDraft(
+  view: GameViewState,
+  ui: UiInteractionState
+): ExchangeDraft | null {
+  return view.self &&
+    ui.mode === "COMPOSING_ACTION" &&
+    !ui.interactionLocked &&
+    !ui.inputDeadlineExpired
+    ? ui.exchangeDraft
+    : null;
+}
+
+function exchangeCardDefinitionIds(
+  view: GameViewState,
+  draft: ExchangeDraft
+): string[] {
+  const card = view.self?.hand.find(
+    ({ instanceId }) => instanceId === draft.cardInstanceId
+  );
+  return card ? [card.cardDefinitionId] : [];
+}
+
+function renderExchangePanel(
+  view: GameViewState,
+  draft: ExchangeDraft
+): string {
+  const action = view.self?.legalActions.find(
+    ({ type }) => type === "EXCHANGE_RESOURCES"
+  );
+  if (action?.type !== "EXCHANGE_RESOURCES") return "";
+  const total = action.resourceTotal;
+  const adjustments: [AdjustableExchangeResource, number][] = [
+    ["mp", 10],
+    ["money", 10],
+    ["mp", 1],
+    ["money", 1],
+    ["mp", -1],
+    ["money", -1],
+    ["mp", -10],
+    ["money", -10]
+  ];
+  return `
+    <div
+      class="gf-exchange"
+      data-exchange-total="${total}"
+      role="group"
+      aria-label="両替"
+      aria-live="polite"
+    >
+      ${renderExchangeReadout(draft, "before", true)}
+      ${adjustments
+        .map(([resource, delta]) =>
+          renderExchangeAdjustButton(draft, total, resource, delta)
+        )
+        .join("")}
+    </div>`;
+}
+
+function renderExchangeResult(scene: ExchangePresentationScene): string {
+  const { event, stageIndex } = scene;
+  if (stageIndex === null) return "";
+  return `
+    <div class="gf-exchange" data-exchange-result-stage="${stageIndex}" role="status">
+      ${renderExchangeReadout(exchangeBeforeAllocation(event), "before")}
+      ${stageIndex >= 1 ? '<span class="gf-exchange__arrow" aria-hidden="true"></span>' : ""}
+      ${
+        stageIndex >= 2
+          ? renderExchangeReadout(
+              {
+                hp: event.hpAfter,
+                mp: event.mpAfter,
+                money: event.moneyAfter
+              },
+              "after"
+            )
+          : ""
+      }
+    </div>`;
 }
 
 function renderUtilityActions(
@@ -1594,128 +2020,45 @@ function renderUtilityActions(
   }
   const actions = view.self.legalActions;
   const forms: string[] = [];
-  const discard = actions.find(({ type }) => type === "DISCARD");
-  if (discard?.type === "DISCARD") {
-    forms.push(`
-      <form class="gf-utility-action" data-utility-form="DISCARD">
-        <div class="gf-utility-action__lead" data-utility-kind="discard">
-          <span aria-hidden="true">▤</span>
-          <strong>捨てる</strong>
-          <small>神器を捨てる（新しい神器は授からない）</small>
-        </div>
-        ${renderUtilityCardChoices(view, discard.cardInstanceIds)}
-        <button type="submit">選んだ神器を捨てる</button>
-      </form>`);
-  }
-  const sacrifice = actions.find(({ type }) => type === "SACRIFICE");
-  if (sacrifice?.type === "SACRIFICE") {
-    forms.push(`
-      <form class="gf-utility-action" data-utility-form="SACRIFICE">
-        <div class="gf-utility-action__lead" data-utility-kind="sacrifice">
-          <span aria-hidden="true">✧</span>
-          <strong>ささげる</strong>
-          <small>神器をささげて奇跡を習得する</small>
-        </div>
-        ${renderUtilityCardChoices(view, sacrifice.cardInstanceIds)}
-        <button type="submit">選んだ神器をささげる</button>
-      </form>`);
-  }
-  const exchange = actions.find(
-    ({ type }) => type === "EXCHANGE_RESOURCES"
-  );
-  if (exchange?.type === "EXCHANGE_RESOURCES") {
-    const selfPlayer = playerById(view, view.self.playerId);
-    const allocation = {
-      hp: selfPlayer?.hp ?? 0,
-      mp: selfPlayer?.mp ?? 0,
-      money: selfPlayer?.money ?? 0
-    };
-    forms.push(`
-      <form class="gf-utility-action gf-utility-action--exchange" data-utility-form="EXCHANGE_RESOURCES">
-        <select class="sr-only" name="cardInstanceId" aria-label="両替神器">${exchange.cardInstanceIds
-          .map((id) => cardOption(view, id)).join("")}</select>
-        <div class="gf-exchange" data-exchange-total="${exchange.resourceTotal}">
-          <div class="gf-utility-action__lead" data-utility-kind="exchange">
-            <span aria-hidden="true">両</span>
-            <strong>両替</strong>
-            <small>HP1＝MP1＝¥1</small>
-          </div>
-          <div class="gf-exchange__buttons" data-resource="mp" data-direction="increase">
-            ${renderExchangeAdjustButton(allocation, exchange.resourceTotal, "mp", 10)}
-            ${renderExchangeAdjustButton(allocation, exchange.resourceTotal, "mp", 1)}
-          </div>
-          <div class="gf-exchange__buttons" data-resource="money" data-direction="increase">
-            ${renderExchangeAdjustButton(allocation, exchange.resourceTotal, "money", 10)}
-            ${renderExchangeAdjustButton(allocation, exchange.resourceTotal, "money", 1)}
-          </div>
-          <div class="gf-exchange__readout" aria-live="polite">
-            <span>HP <output data-exchange-output="hp">${allocation.hp}</output></span>
-            <span>MP <output data-exchange-output="mp">${allocation.mp}</output></span>
-            <span>¥ <output data-exchange-output="money">${allocation.money}</output></span>
-          </div>
-          <div class="gf-exchange__buttons" data-resource="mp" data-direction="decrease">
-            ${renderExchangeAdjustButton(allocation, exchange.resourceTotal, "mp", -1)}
-            ${renderExchangeAdjustButton(allocation, exchange.resourceTotal, "mp", -10)}
-          </div>
-          <div class="gf-exchange__buttons" data-resource="money" data-direction="decrease">
-            ${renderExchangeAdjustButton(allocation, exchange.resourceTotal, "money", -1)}
-            ${renderExchangeAdjustButton(allocation, exchange.resourceTotal, "money", -10)}
-          </div>
-          <input name="hp" type="hidden" value="${allocation.hp}">
-          <input name="mp" type="hidden" value="${allocation.mp}">
-          <input name="money" type="hidden" value="${allocation.money}">
-        </div>
-        <small class="gf-exchange__total">合計 ${exchange.resourceTotal}</small>
-        <button type="submit">両替する</button>
-      </form>`);
-  }
-  const sell = actions.find(({ type }) => type === "SELL_CARD");
-  if (sell?.type === "SELL_CARD") {
-    forms.push(`
-      <form class="gf-utility-action" data-utility-form="SELL_CARD">
-        <label>取引神器
-          <select name="cardInstanceId">${sell.cardInstanceIds
-            .map((id) => cardOption(view, id)).join("")}</select>
-        </label>
-        <label>売る商品
-          <select name="productCardInstanceId">${sell.productCardInstanceIds
-            .map((id) => cardOption(view, id)).join("")}</select>
-        </label>
-        <label>売り先
-          <select name="targetPlayerId">${sell.targetPlayerIds
-            .map((id) => playerOption(view, id)).join("")}</select>
-        </label>
-        <button type="submit">売る</button>
-      </form>`);
-  }
-  const buy = actions.find(({ type }) => type === "DECLARE_BUY");
-  if (buy?.type === "DECLARE_BUY") {
-    forms.push(`
-      <form class="gf-utility-action" data-utility-form="DECLARE_BUY">
-        <label>取引神器
-          <select name="cardInstanceId">${buy.cardInstanceIds
-            .map((id) => cardOption(view, id)).join("")}</select>
-        </label>
-        <label>購入先
-          <select name="targetPlayerId">${buy.targetPlayerIds
-            .map((id) => playerOption(view, id)).join("")}</select>
-        </label>
-        <button type="submit">商品を見る</button>
-      </form>`);
-  }
   if (actions.some(({ type }) => type === "SURRENDER")) {
     forms.push(`
-      <form class="gf-utility-action" data-utility-form="SURRENDER">
+      <form class="gf-utility-action" data-utility-form="SURRENDER" hidden>
+        <button type="button" class="gf-utility-action__close" data-close-utility aria-label="降参画面を閉じる">×</button>
         <p>この試合を降参します。</p>
         <button type="submit" class="gf-utility-action__danger">降参する</button>
       </form>`);
   }
   return forms.length === 0
     ? ""
-    : `<details class="gf-utility-actions">
-        <summary>その他の行動</summary>
-        ${forms.join("")}
-      </details>`;
+    : `<div class="gf-utility-actions">${forms.join("")}</div>`;
+}
+
+function renderHandActionToggle(
+  view: GameViewState,
+  ui: UiInteractionState
+): string {
+  if (
+    !view.self ||
+    ui.mode !== "COMPOSING_ACTION" ||
+    ui.interactionLocked ||
+    ui.inputDeadlineExpired ||
+    ui.tradeDraft !== null
+  ) {
+    return "";
+  }
+  const action = view.self.legalActions.find(
+    ({ type }) => type === "DISCARD" || type === "SACRIFICE"
+  );
+  if (action?.type !== "DISCARD" && action?.type !== "SACRIFICE") return "";
+  const active = ui.handActionMode === action.type;
+  const label = action.type === "DISCARD" ? "捨てる" : "ささげる";
+  return `<button
+    type="button"
+    class="gf-hand-action-toggle"
+    data-toggle-hand-action="${action.type}"
+    aria-pressed="${String(active)}"
+    title="${active ? `${label}カードを選択中` : `${label}モードに切り替える`}"
+  >${label}</button>`;
 }
 
 const RESOURCE_LABELS = {
@@ -1944,7 +2287,9 @@ export function renderBattleScreen(
       ? { ...presentationLockedUi, interactionLocked: true }
       : presentationLockedUi;
   const heldTurnPlayerId = presentationTurnPlayerId(visiblePresentation);
-  const displayedView =
+  const presentedExchange = presentationExchange(visiblePresentation);
+  const presentedPayment = heldTradePayment(visiblePresentation);
+  const turnHeldView =
     heldTurnPlayerId === null
       ? view
       : {
@@ -1952,6 +2297,29 @@ export function renderBattleScreen(
           activePlayerId: heldTurnPlayerId,
           actingPlayerId: heldTurnPlayerId
         };
+  // The exchanged resources reach the player list once the staged reveal ends.
+  const exchangeHeldView = presentedExchange
+    ? {
+        ...turnHeldView,
+        players: turnHeldView.players.map((player) =>
+          player.playerId === presentedExchange.event.playerId
+            ? {
+                ...player,
+                ...exchangeBeforeAllocation(presentedExchange.event)
+              }
+            : player
+        )
+      }
+    : turnHeldView;
+  // A trade reaches the player list when the coin arrives at the recipient.
+  const displayedView = presentedPayment
+    ? {
+        ...exchangeHeldView,
+        players: exchangeHeldView.players.map((player) =>
+          withHeldTradeResources(player, presentedPayment)
+        )
+      }
+    : exchangeHeldView;
   const activePlayer = playerById(
     displayedView,
     displayedView.activePlayerId
@@ -1963,10 +2331,22 @@ export function renderBattleScreen(
     displayedEndTimeAt === null
       ? "終末なし"
       : `終末 G.F.${displayedEndTimeAt}`;
-  const hand = view.self?.hand ?? [];
-  const concealedCardInstanceIds = new Set(
-    visiblePresentation?.concealedCardInstanceIds ?? []
-  );
+  const soldCardInstanceId =
+    view.pendingAttack?.actorId === view.self?.playerId
+      ? view.pendingAttack?.saleProduct?.cardInstanceId ?? null
+      : null;
+  const hand = [
+    ...(view.self?.hand ?? []).filter(
+      ({ instanceId }) => instanceId !== soldCardInstanceId
+    ),
+    ...(view.self?.hand ?? []).filter(
+      ({ instanceId }) => instanceId === soldCardInstanceId
+    )
+  ];
+  const concealedCardInstanceIds = new Set([
+    ...(visiblePresentation?.concealedCardInstanceIds ?? []),
+    ...(soldCardInstanceId === null ? [] : [soldCardInstanceId])
+  ]);
   const miracles = view.self?.learnedMiracles ?? [];
   const preview = actionPreview(displayedUi, view);
   const selfPlayer = playerById(view, view.self?.playerId ?? null);
@@ -1981,21 +2361,25 @@ export function renderBattleScreen(
     displayedUi.selectedLearnedMiracleIds.length > 0;
   const presentedTargetId =
     presentationAttackScene(visiblePresentation)?.targetPlayerId ?? null;
+  const tradeDraft = activeTradeDraft(view, displayedUi);
+  const targetCandidateIds =
+    tradeActionForDraft(tradeDraft, view)?.targetPlayerIds ??
+    preview.targetPlayerIds;
   const highlightedTargetIds =
     presentedTargetId !== null
       ? [presentedTargetId]
       : visiblePresentation?.activeStep?.step.kind === "ACTION"
         ? []
-        : hasLocalActionSelection
+        : hasLocalActionSelection || tradeDraft
           ? displayedUi.selectedTargetIds
           : view.targetPlayerIds;
-  const playerMarkup = [...view.players]
+  const playerMarkup = [...displayedView.players]
     .sort((left, right) => left.seatIndex - right.seatIndex)
     .map((player) =>
       renderPlayer(
         player,
         displayedView,
-        preview.targetPlayerIds,
+        targetCandidateIds,
         highlightedTargetIds,
         displayedUi.interactionLocked
       )
@@ -2075,7 +2459,7 @@ export function renderBattleScreen(
     <ol class="gf-player-list">${playerMarkup}</ol>
   </section>
 
-  ${renderActionRegion(view, displayedUi, visiblePresentation)}
+  ${renderActionRegion(view, displayedUi, visiblePresentation, nowMs)}
   ${renderResponseRegion(view, displayedUi)}
 
   <section
@@ -2131,9 +2515,15 @@ export function renderBattleScreen(
       <button
         type="button"
         data-focus-targets
-        ${preview.targetPlayerIds.length > 1 && !displayedUi.interactionLocked ? "" : "disabled"}
+        ${targetCandidateIds.length > 1 && !displayedUi.interactionLocked ? "" : "disabled"}
       >対象を選ぶ</button>
     </div>
+    ${renderHandActionToggle(view, displayedUi)}
+    ${
+      view.self?.legalActions.some(({ type }) => type === "SURRENDER")
+        ? '<button type="button" class="gf-surrender-trigger" data-open-utility="SURRENDER">降参</button>'
+        : ""
+    }
     ${renderUtilityActions(view, displayedUi)}
     ${
       preview.invalidReason
@@ -2146,14 +2536,7 @@ export function renderBattleScreen(
     <span class="gf-battle-footer__name">${
       escapeHtml(selfPlayer?.displayName ?? "観戦者")
     }</span>
-    <span class="gf-battle-footer__sound" aria-label="音量">
-      <span aria-hidden="true">◀</span>
-      ${Array.from(
-        { length: 10 },
-        (_, index) =>
-          `<i aria-hidden="true" data-level="${index + 1}"></i>`
-      ).join("")}
-    </span>
+    ${renderSoundControl("gf-battle-footer__sound")}
   </footer>
 
   ${renderResultRegion(view, links)}
@@ -2203,7 +2586,7 @@ export function mountBattleScreen(
   let renderedDeadlineSeconds: number | null = null;
   let disposed = false;
   const sounds = new SoundEffectPlayer();
-  const soundedEventSeqs = new Set<number>();
+  const soundedStepIds = new Set<string>();
   let mutedSoundEventSeqThrough = 0;
   const createCommandId = interactions.createCommandId ?? defaultCommandId;
   const now = interactions.now ?? Date.now;
@@ -2235,17 +2618,70 @@ export function mountBattleScreen(
       });
     }
     for (const button of container.querySelectorAll<HTMLButtonElement>(
-      '[data-open-utility="EXCHANGE_RESOURCES"]'
+      "[data-toggle-hand-action]"
     )) {
       button.addEventListener("click", () => {
-        const details = container.querySelector<HTMLDetailsElement>(
-          ".gf-utility-actions"
+        const type = button.dataset.toggleHandAction;
+        if (type === "DISCARD" || type === "SACRIFICE") {
+          update(toggleHandActionMode(currentUi, type));
+        }
+      });
+    }
+    for (const button of container.querySelectorAll<HTMLButtonElement>(
+      "[data-submit-hand-action]"
+    )) {
+      button.addEventListener("click", () => {
+        const type = button.dataset.submitHandAction;
+        const cardInstanceId = button.dataset.handActionCardInstance;
+        const action = currentView.self?.legalActions.find(
+          (candidate) => candidate.type === type
         );
-        const form = details?.querySelector<HTMLFormElement>(
-          '[data-utility-form="EXCHANGE_RESOURCES"]'
+        if (
+          (type !== "DISCARD" && type !== "SACRIFICE") ||
+          !cardInstanceId ||
+          (action?.type !== "DISCARD" && action?.type !== "SACRIFICE") ||
+          !action.cardInstanceIds.includes(cardInstanceId) ||
+          currentUi.handActionMode !== type
+        ) {
+          return;
+        }
+        const commandId = currentUi.awaitingCommandId ?? createCommandId();
+        const command: GameCommand = {
+          type,
+          matchId: currentView.matchId,
+          commandId,
+          actorId: currentView.self!.playerId,
+          expectedRevision: currentView.revision,
+          cardInstanceId
+        };
+        update(lockForCommand(currentUi, commandId));
+        interactions.onCommand?.(command);
+      });
+    }
+    for (const button of container.querySelectorAll<HTMLButtonElement>(
+      "[data-open-utility]"
+    )) {
+      button.addEventListener("click", () => {
+        const type = button.dataset.openUtility;
+        if (!type) return;
+        const exchangeCardId = button.dataset.utilityCardInstance;
+        if (type === "EXCHANGE_RESOURCES" && exchangeCardId) {
+          update(toggleExchangeDraft(currentUi, exchangeCardId, currentView));
+          return;
+        }
+        if ((type === "SELL_CARD" || type === "DECLARE_BUY") && exchangeCardId) {
+          update(toggleTradeDraft(currentUi, type, exchangeCardId, currentView));
+          return;
+        }
+        const forms = container.querySelectorAll<HTMLFormElement>(
+          "[data-utility-form]"
         );
-        if (!details || !form) return;
-        details.open = true;
+        const form = [...forms].find(
+          (candidate) => candidate.dataset.utilityForm === type
+        );
+        if (!form) return;
+        for (const candidate of forms) candidate.hidden = candidate !== form;
+        form.hidden = false;
         const cardInstanceId = button.dataset.utilityCardInstance;
         const select = form.querySelector<HTMLSelectElement>(
           'select[name="cardInstanceId"]'
@@ -2257,13 +2693,38 @@ export function mountBattleScreen(
         ) {
           select.value = cardInstanceId;
         }
-        form
-          .querySelector<HTMLButtonElement>(
-            "[data-exchange-adjust]:not(:disabled)"
-          )
-          ?.focus();
+        form.querySelector<HTMLElement>("select, button")?.focus();
       });
     }
+    for (const button of container.querySelectorAll<HTMLButtonElement>(
+      "[data-close-utility]"
+    )) {
+      button.addEventListener("click", () => {
+        const form = button.closest<HTMLFormElement>("[data-utility-form]");
+        if (form) form.hidden = true;
+      });
+    }
+    for (const button of container.querySelectorAll<HTMLElement>(
+      "[data-select-trade-product]"
+    )) {
+      button.addEventListener("click", () => {
+        const id = button.dataset.selectTradeProduct;
+        if (id) update(toggleTradeProduct(currentUi, id, currentView));
+      });
+    }
+    container.querySelector("[data-submit-trade]")?.addEventListener(
+      "click",
+      () => {
+        const prepared = prepareTradeSubmission(
+          currentUi,
+          currentView,
+          createCommandId
+        );
+        if (!prepared) return;
+        update(prepared.ui);
+        interactions.onCommand?.(prepared.command);
+      }
+    );
     for (const button of container.querySelectorAll<HTMLElement>(
       "[data-select-miracle]"
     )) {
@@ -2379,78 +2840,45 @@ export function mountBattleScreen(
       "[data-exchange-adjust]"
     )) {
       button.addEventListener("click", () => {
-        const form = button.closest<HTMLFormElement>(
-          '[data-utility-form="EXCHANGE_RESOURCES"]'
+        const adjustment = button.dataset.exchangeAdjust ?? "";
+        const [resource, deltaText] = adjustment.split(":");
+        const total = Number(
+          button.closest<HTMLElement>("[data-exchange-total]")?.dataset
+            .exchangeTotal
         );
-        const exchange = button.closest<HTMLElement>("[data-exchange-total]");
-        if (!form || !exchange) return;
-        const [resource, deltaText] = (
-          button.dataset.exchangeAdjust ?? ""
-        ).split(":");
-        if (resource !== "mp" && resource !== "money") return;
-        const delta = Number(deltaText);
-        const total = Number(exchange.dataset.exchangeTotal);
-        const hpInput = form.querySelector<HTMLInputElement>(
-          'input[name="hp"]'
-        );
-        const mpInput = form.querySelector<HTMLInputElement>(
-          'input[name="mp"]'
-        );
-        const moneyInput = form.querySelector<HTMLInputElement>(
-          'input[name="money"]'
-        );
-        if (
-          !hpInput ||
-          !mpInput ||
-          !moneyInput ||
-          !Number.isInteger(delta) ||
-          !Number.isInteger(total)
-        ) {
-          return;
-        }
+        const draft = currentUi.exchangeDraft;
+        if (!draft || (resource !== "mp" && resource !== "money")) return;
         const next = adjustExchangeAllocation(
-          {
-            hp: Number(hpInput.value),
-            mp: Number(mpInput.value),
-            money: Number(moneyInput.value)
-          },
+          draft,
           total,
           resource,
-          delta
+          Number(deltaText)
         );
         if (!next) return;
-        hpInput.value = String(next.hp);
-        mpInput.value = String(next.mp);
-        moneyInput.value = String(next.money);
-        for (const [name, value] of [
-          ["hp", next.hp],
-          ["mp", next.mp],
-          ["money", next.money]
-        ] as const) {
-          const output = form.querySelector<HTMLOutputElement>(
-            `[data-exchange-output="${name}"]`
-          );
-          if (output) output.value = String(value);
-        }
-        for (const adjustButton of form.querySelectorAll<HTMLButtonElement>(
-          "[data-exchange-adjust]"
-        )) {
-          const [adjustResource, adjustDeltaText] = (
-            adjustButton.dataset.exchangeAdjust ?? ""
-          ).split(":");
-          if (adjustResource !== "mp" && adjustResource !== "money") {
-            continue;
-          }
-          adjustButton.disabled =
-            adjustExchangeAllocation(
-              next,
-              total,
-              adjustResource,
-              Number(adjustDeltaText)
-            ) === null;
-        }
+        update(updateExchangeDraft(currentUi, next));
+        (
+          container.querySelector<HTMLElement>(
+            `[data-exchange-adjust="${adjustment}"]:not(:disabled)`
+          ) ??
+          container.querySelector<HTMLElement>(
+            "[data-exchange-adjust]:not(:disabled)"
+          )
+        )?.focus();
       });
     }
+    container.querySelector("[data-submit-exchange]")?.addEventListener(
+      "click",
+      () => {
+        const prepared = prepareExchangeSubmission(
+          currentUi,
+          currentView,
+          createCommandId
+        );
+        if (!prepared) return;
+        update(prepared.ui);
+        interactions.onCommand?.(prepared.command);
+      }
+    );
     for (const form of container.querySelectorAll<HTMLFormElement>(
       "[data-utility-form]"
     )) {
@@ -2473,12 +2901,6 @@ export function mountBattleScreen(
         const cardInstanceId = String(
           values.get("cardInstanceId") ?? ""
         );
-        const targetPlayerId = String(
-          values.get("targetPlayerId") ?? ""
-        );
-        const productCardInstanceId = String(
-          values.get("productCardInstanceId") ?? ""
-        );
         const commandId =
           currentUi.awaitingCommandId ?? createCommandId();
         const base = {
@@ -2493,59 +2915,6 @@ export function mountBattleScreen(
           case "SACRIFICE":
             if (action.cardInstanceIds.includes(cardInstanceId)) {
               command = { ...base, type: action.type, cardInstanceId };
-            }
-            break;
-          case "EXCHANGE_RESOURCES": {
-            const hp = Number(values.get("hp"));
-            const mp = Number(values.get("mp"));
-            const money = Number(values.get("money"));
-            if (
-              action.cardInstanceIds.includes(cardInstanceId) &&
-              [hp, mp, money].every(
-                (value) =>
-                  Number.isInteger(value) && value >= 0 && value <= 99
-              ) &&
-              hp + mp + money === action.resourceTotal
-            ) {
-              command = {
-                ...base,
-                type: "EXCHANGE_RESOURCES",
-                cardInstanceId,
-                hp,
-                mp,
-                money
-              };
-            }
-            break;
-          }
-          case "SELL_CARD":
-            if (
-              action.cardInstanceIds.includes(cardInstanceId) &&
-              action.productCardInstanceIds.includes(
-                productCardInstanceId
-              ) &&
-              action.targetPlayerIds.includes(targetPlayerId)
-            ) {
-              command = {
-                ...base,
-                type: "SELL_CARD",
-                cardInstanceId,
-                productCardInstanceId,
-                targetPlayerId
-              };
-            }
-            break;
-          case "DECLARE_BUY":
-            if (
-              action.cardInstanceIds.includes(cardInstanceId) &&
-              action.targetPlayerIds.includes(targetPlayerId)
-            ) {
-              command = {
-                ...base,
-                type: "DECLARE_BUY",
-                cardInstanceId,
-                targetPlayerId
-              };
             }
             break;
           case "SURRENDER":
@@ -2566,13 +2935,21 @@ export function mountBattleScreen(
     if (!(target instanceof Element)) return;
     const button = target.closest<HTMLButtonElement>("button");
     if (!button || button.disabled) return;
+    // The declared action plays the card sound for these confirmations.
+    if (button.matches("[data-submit-exchange], [data-submit-trade]")) return;
+    // The server's reaction event plays the answer's own sound.
+    if (button.matches("[data-submit-forgive], [data-submit-reaction]")) return;
     if (
       button.matches(
-        "[data-select-card], [data-select-miracle], [data-select-defense-card], [data-select-defense-miracle]"
+        "[data-select-card], [data-select-miracle], [data-select-defense-card], [data-select-defense-miracle], [data-select-trade-product], [data-open-utility='EXCHANGE_RESOURCES']"
       )
     ) {
       sounds.play("card");
-    } else if (button.matches("[data-select-target]")) {
+    } else if (
+      button.matches(
+        "[data-select-target], [data-open-utility='SELL_CARD'], [data-open-utility='DECLARE_BUY']"
+      )
+    ) {
       sounds.play("target");
     } else if (button.matches("[data-exchange-adjust]")) {
       sounds.play("toggle");
@@ -2582,20 +2959,42 @@ export function mountBattleScreen(
   };
   container.addEventListener("click", playInteractionSound);
 
-  const playEventSound = (event: DomainEvent): void => {
+  const playEventSound = (
+    event: DomainEvent,
+    stepId = `${event.eventSeq}`
+  ): void => {
     if (
       event.eventSeq <= mutedSoundEventSeqThrough ||
-      soundedEventSeqs.has(event.eventSeq)
+      soundedStepIds.has(stepId)
     ) {
       return;
     }
-    soundedEventSeqs.add(event.eventSeq);
+    soundedStepIds.add(stepId);
     sounds.playEvents([event], currentView.self?.playerId ?? null);
   };
 
   const playCurrentPresentationSound = (): void => {
-    const event = presentation.activeStep?.step.event;
-    if (event) playEventSound(event);
+    const step = presentation.activeStep?.step;
+    if (!step) return;
+    if (step.event.type === "TRADE_PAYMENT_COLLECTED") {
+      const stage = tradePresentationStage(step);
+      if (stage === "STAMP" && !soundedStepIds.has(step.stepId)) {
+        soundedStepIds.add(step.stepId);
+        sounds.play("button");
+      }
+      if (stage !== "SETTLE") return;
+    }
+    // A staged sale reveal is one declaration, so it sounds once.
+    if (step.event.type === "ACTION_DECLARED" && step.stageIndex > 0) return;
+    playEventSound(step.event, step.stepId);
+  };
+
+  const setPresentation = (next: PresentationQueueState): void => {
+    const revealedConcealedCards =
+      presentation.concealedCardInstanceIds.length > 0 &&
+      next.concealedCardInstanceIds.length === 0;
+    presentation = next;
+    if (revealedConcealedCards) sounds.play("openCover");
   };
 
   const stopDeadlineTimer = (): void => {
@@ -2637,7 +3036,7 @@ export function mountBattleScreen(
       nowMs
     );
     const presentationChanged = nextPresentation !== presentation;
-    presentation = nextPresentation;
+    setPresentation(nextPresentation);
     if (presentationChanged) playCurrentPresentationSound();
     const next = advanceUiClock(currentUi, currentView, nowMs);
     if (next !== currentUi) {
@@ -2677,13 +3076,11 @@ export function mountBattleScreen(
           message.eventSeq
         );
       }
-      presentation = applyRealtimePresentationMessage(
-        presentation,
-        message,
-        nowMs
+      setPresentation(
+        applyRealtimePresentationMessage(presentation, message, nowMs)
       );
       if (message.type === "EVENT_BATCH") {
-        for (const event of message.events) {
+        for (const event of immediateSoundEvents(message.events)) {
           if (presentationStepsForEvent(event).length === 0) {
             playEventSound(event);
           }
@@ -3373,6 +3770,14 @@ export const BATTLE_SCREEN_STYLES = `
   padding: 0.7rem;
 }
 
+.gf-utility-action[hidden] {
+  display: none;
+}
+
+.gf-utility-action__close {
+  justify-self: end;
+}
+
 .gf-utility-action label {
   display: grid;
   gap: 0.3rem;
@@ -4046,6 +4451,14 @@ export const BATTLE_SCREEN_STYLES = `
   line-height: 1;
 }
 
+.gf-action__activity.sr-only {
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .gf-action__content {
   position: absolute;
   top: 11.25%;
@@ -4122,6 +4535,11 @@ export const BATTLE_SCREEN_STYLES = `
   box-shadow: inset 0 0 0 2px rgb(238 255 238 / 28%);
 }
 
+.gf-action__confirm:active,
+.gf-action__pray:active {
+  background: rgb(0 40 30 / 40%);
+}
+
 .gf-action__confirm:focus-visible,
 .gf-action__pray:focus-visible {
   outline: 4px solid #ffbb00;
@@ -4153,6 +4571,137 @@ export const BATTLE_SCREEN_STYLES = `
   color: #bb0000;
   background: #ffeeee;
   font-size: clamp(24px, 4.4444cqi, 48px);
+}
+
+.gf-action__forgive--trade {
+  position: absolute;
+  z-index: 7;
+  top: 105.1724%;
+  left: 56.25%;
+  inline-size: 40.625%;
+  min-block-size: 0;
+  block-size: 13.7931%;
+  border: 0;
+  border-radius: 10px;
+  color: #eeffee;
+  background: #aa3344;
+  box-shadow: 0 2px 0 rgb(125 105 60 / 28%);
+  font-size: clamp(11px, 2.0833cqi, 22px);
+}
+
+.gf-trade-swap {
+  position: absolute;
+  z-index: 7;
+  inset: 0;
+  pointer-events: none;
+}
+
+.gf-trade-swap .gf-trade-swap__product {
+  position: absolute;
+  top: 100px;
+  left: 53.125%;
+  inline-size: 46.875%;
+  block-size: 90px;
+  aspect-ratio: auto;
+}
+
+.gf-trade-swap[data-trade-stage="SWAP"][data-trade-kind="SELL"] .gf-trade-swap__product {
+  animation: gf-trade-move-right 800ms cubic-bezier(0.61, 1, 0.88, 1) var(--gf-trade-delay) both;
+}
+
+.gf-trade-swap[data-trade-stage="SWAP"][data-trade-kind="BUY"] .gf-trade-swap__product {
+  animation: gf-trade-move-left 800ms cubic-bezier(0.61, 1, 0.88, 1) var(--gf-trade-delay) both;
+}
+
+.gf-trade-swap__coin {
+  position: absolute;
+  top: 164px;
+  inline-size: 157px;
+  block-size: 157px;
+  display: grid;
+  place-items: center;
+  border: 2px solid #eee8a8;
+  border-radius: 50%;
+  color: #333333;
+  background: #ffffaa;
+  font-size: clamp(32px, 5.9259cqi, 64px);
+  line-height: 1;
+}
+
+.gf-trade-swap[data-trade-kind="SELL"] .gf-trade-swap__coin {
+  left: calc(23.4375% - 78px);
+}
+
+.gf-trade-swap[data-trade-kind="BUY"] .gf-trade-swap__coin {
+  left: calc(76.5625% - 78px);
+}
+
+.gf-trade-swap[data-trade-stage="SWAP"][data-trade-kind="SELL"] .gf-trade-swap__coin {
+  animation: gf-trade-coin-left 800ms cubic-bezier(0.61, 1, 0.88, 1) var(--gf-trade-delay) both;
+}
+
+.gf-trade-swap[data-trade-stage="SWAP"][data-trade-kind="BUY"] .gf-trade-swap__coin {
+  animation: gf-trade-coin-right 800ms cubic-bezier(0.61, 1, 0.88, 1) var(--gf-trade-delay) both;
+}
+
+.gf-trade-swap[data-trade-kind="BUY"][data-trade-stage="SETTLE"] .gf-trade-swap__product {
+  left: 0;
+}
+
+.gf-trade-swap__stamp {
+  position: absolute;
+  top: 0;
+  left: 0;
+  inline-size: 46.875%;
+  block-size: 90px;
+  display: grid;
+  place-items: center;
+  border: 3px solid #ffdde8;
+  border-radius: 8px;
+  color: #ffffff;
+  background: #ee88aa;
+  font-size: clamp(24px, 4.4444cqi, 48px);
+  animation: gf-effect-overlay-enter 180ms ease-out both;
+}
+
+@keyframes gf-trade-move-right {
+  from {
+    left: 0;
+  }
+
+  to {
+    left: 53.125%;
+  }
+}
+
+@keyframes gf-trade-move-left {
+  from {
+    left: 53.125%;
+  }
+
+  to {
+    left: 0;
+  }
+}
+
+@keyframes gf-trade-coin-left {
+  from {
+    left: calc(76.5625% - 78px);
+  }
+
+  to {
+    left: calc(23.4375% - 78px);
+  }
+}
+
+@keyframes gf-trade-coin-right {
+  from {
+    left: calc(23.4375% - 78px);
+  }
+
+  to {
+    left: calc(76.5625% - 78px);
+  }
 }
 
 .gf-action__result,
@@ -4411,6 +4960,10 @@ export const BATTLE_SCREEN_STYLES = `
 }
 
 .gf-action[data-has-defense="false"] .gf-action__defense-summary {
+  visibility: hidden;
+}
+
+.gf-action[data-trade="true"] .gf-action__summary {
   visibility: hidden;
 }
 
@@ -4856,6 +5409,11 @@ export const BATTLE_SCREEN_STYLES = `
   white-space: nowrap;
 }
 
+.gf-hand .gf-card__effect[data-trade-price] {
+  color: #4f5f2f;
+  background: #ffffbb;
+}
+
 .gf-hand .gf-card__reason {
   display: none;
 }
@@ -4933,26 +5491,41 @@ export const BATTLE_SCREEN_STYLES = `
   padding: 0;
   color: #668888;
   font-size: clamp(7px, 1.1111cqi, 12px);
+  pointer-events: none;
 }
 
-.gf-utility-actions summary {
-  inline-size: 100%;
-  block-size: 100%;
+.gf-hand-action-toggle {
+  position: absolute;
+  top: 58%;
+  right: -4%;
+  inline-size: 18%;
+  block-size: 66.6667%;
   display: grid;
   place-items: center;
   overflow: hidden;
   border: 4px solid #999999;
   border-radius: 0;
-  color: transparent;
+  color: #888888;
   background: #eeeeee;
-  font-size: 0;
+  font-size: clamp(7px, 1.1111cqi, 12px);
   text-align: center;
 }
 
-.gf-utility-actions summary::before {
-  color: #888888;
-  content: "▤";
-  font-size: clamp(15px, 3.3333cqi, 36px);
+.gf-hand-action-toggle[aria-pressed="true"] {
+  border-color: #ffbb00;
+  color: #eeffee;
+  background: #ffbb00;
+}
+
+.gf-surrender-trigger {
+  position: absolute;
+  top: 140%;
+  right: -4%;
+  inline-size: 18%;
+  block-size: 42%;
+  min-block-size: 0 !important;
+  padding: 0 !important;
+  font-size: clamp(6px, 0.9259cqi, 10px) !important;
 }
 
 .gf-utility-action {
@@ -4966,50 +5539,7 @@ export const BATTLE_SCREEN_STYLES = `
   border-color: #668888;
   color: #4f4f4f;
   background: #eeffee;
-}
-
-.gf-utility-action__lead {
-  min-block-size: 4.5cqi;
-  display: grid;
-  grid-template-columns: 15% minmax(0, 1fr);
-  grid-template-rows: auto 1fr;
-  overflow: hidden;
-  border: 4px solid #55bb99;
-  border-radius: 6px;
-  color: #4f4f4f;
-  background: #ddffcc;
-}
-
-.gf-utility-action__lead > span {
-  grid-row: 1 / 3;
-  display: grid;
-  place-items: center;
-  border-inline-end: 2px solid #668888;
-  color: #eeffee;
-  background: #999999;
-  font-size: clamp(18px, 4.4444cqi, 48px);
-}
-
-.gf-utility-action__lead[data-utility-kind="exchange"] > span {
-  background: #c5ad14;
-}
-
-.gf-utility-action__lead > strong,
-.gf-utility-action__lead > small {
-  min-inline-size: 0;
-  padding-inline: 2%;
-}
-
-.gf-utility-action__lead > strong {
-  align-self: end;
-  border-block-end: 1px solid #668888;
-  font-size: clamp(10px, 1.8519cqi, 20px);
-}
-
-.gf-utility-action__lead > small {
-  align-self: start;
-  padding-block-start: 0.5%;
-  font-size: clamp(7px, 1.2037cqi, 13px);
+  pointer-events: auto;
 }
 
 .gf-utility-card-choices {
@@ -5090,87 +5620,132 @@ export const BATTLE_SCREEN_STYLES = `
   font-size: clamp(7px, 1.2037cqi, 13px);
 }
 
+.gf-action[data-exchange="true"] .gf-action__summary {
+  display: none;
+}
+
 .gf-exchange {
-  display: grid;
-  grid-template-columns: minmax(0, 1.35fr) repeat(2, minmax(0, 0.55fr));
-  grid-template-rows: auto auto auto;
-  gap: 0.7cqi 1.1cqi;
+  position: absolute;
+  z-index: 5;
+  inset: 0;
+  pointer-events: none;
 }
 
-.gf-exchange > .gf-utility-action__lead {
-  grid-column: 1;
-  grid-row: 1;
-}
-
-.gf-exchange__buttons[data-resource="mp"] {
-  grid-column: 2;
-}
-
-.gf-exchange__buttons[data-resource="money"] {
-  grid-column: 3;
-}
-
-.gf-exchange__buttons[data-direction="increase"] {
-  grid-row: 1;
-}
-
-.gf-exchange__buttons[data-direction="decrease"] {
-  grid-row: 3;
-}
-
-.gf-exchange__buttons {
-  display: grid;
-  gap: 0.35cqi;
-}
-
-.gf-exchange__buttons button {
-  min-block-size: 2.3cqi;
+.gf-exchange__adjust {
+  position: absolute;
+  inline-size: 18.4375%;
+  block-size: 16.5517%;
   padding: 0;
-  border: 3px solid #fff0aa;
+  border: 3px solid #f8f1b4;
   border-radius: 8px;
-  color: #eeffee;
-  background: #c2a62d;
-  font-size: clamp(12px, 2.7778cqi, 30px);
+  color: #fef498;
+  background: #c9be4c;
+  font-size: clamp(14px, 3.1481cqi, 34px);
+  font-weight: 700;
   line-height: 1;
+  pointer-events: auto;
+  cursor: pointer;
 }
 
-.gf-exchange__buttons button:disabled {
+.gf-exchange__adjust[data-exchange-column="1"] {
+  left: 56.25%;
+}
+
+.gf-exchange__adjust[data-exchange-column="2"] {
+  left: 78.125%;
+}
+
+.gf-exchange__adjust[data-exchange-row="1"] {
+  top: 0;
+}
+
+.gf-exchange__adjust[data-exchange-row="2"] {
+  top: 20.6897%;
+}
+
+.gf-exchange__adjust[data-exchange-row="4"] {
+  top: 62.069%;
+}
+
+.gf-exchange__adjust[data-exchange-row="5"] {
+  top: 82.7586%;
+}
+
+.gf-exchange__adjust:not(:disabled):hover {
+  background: #d7cd7b;
+}
+
+.gf-exchange__adjust:not(:disabled):active {
+  background: #a89e3c;
+}
+
+.gf-exchange__adjust:disabled {
   border-color: #a99b5e;
-  color: #b2aa81;
+  color: #8c8344;
   background: #665c24;
   opacity: 1;
+  cursor: default;
 }
 
 .gf-exchange__readout {
-  grid-row: 2;
-  grid-column: 1 / -1;
-  margin-inline-start: 22%;
-  padding: 0.5cqi 1cqi;
+  position: absolute;
+  left: 28.125%;
+  inline-size: 68.4375%;
+  block-size: 16.5517%;
+  padding-inline: 3.5% 4%;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  border: 1px solid #aaaaaa;
-  border-radius: 999px;
-  background: #eeeeee;
-  font-size: clamp(11px, 2.2222cqi, 24px);
+  grid-template-columns: 115fr 108fr 88fr;
+  column-gap: 6%;
+  align-items: center;
+  border: 1px solid #cccccc;
+  border-inline-end: 0;
+  border-radius: 999px 0 0 999px;
+  color: #667c7c;
+  background: #efedee;
+  font-size: clamp(11px, 2.5926cqi, 28px);
   font-weight: 700;
-  text-align: center;
+}
+
+.gf-exchange__readout[data-exchange-row="before"] {
+  top: 41.3793%;
+}
+
+.gf-exchange__readout[data-exchange-row="after"] {
+  top: 82.7586%;
 }
 
 .gf-exchange__readout span {
   display: flex;
-  align-items: baseline;
-  justify-content: center;
-  gap: 0.65cqi;
+  align-items: center;
+  justify-content: space-between;
 }
 
-.gf-exchange__readout output {
-  color: #3f3f3f;
+.gf-exchange__readout span:last-child {
+  margin-inline-start: 22%;
+}
+
+.gf-exchange__readout output,
+.gf-exchange__readout b {
+  color: #505154;
   font-size: 1.35em;
 }
 
-.gf-exchange__total {
-  color: #668888;
-  text-align: center;
+.gf-exchange__arrow {
+  position: absolute;
+  top: 64%;
+  left: 55.5%;
+  inline-size: 12.5%;
+  block-size: 14.5%;
+  background: #c9be4c;
+  clip-path: polygon(
+    26% 0,
+    74% 0,
+    74% 42%,
+    100% 42%,
+    50% 100%,
+    0 42%,
+    26% 42%
+  );
 }
 
 .gf-presentation {
@@ -5233,25 +5808,10 @@ export const BATTLE_SCREEN_STYLES = `
 }
 
 .gf-battle-footer__sound {
+  --gf-sound-bar: clamp(3px, 0.9259cqi, 10px);
+  --gf-sound-icon: clamp(10px, 1.8519cqi, 20px);
   block-size: 66.6667%;
-  display: flex;
-  align-items: stretch;
-  gap: 2px;
-}
-
-.gf-battle-footer__sound > span {
-  display: grid;
-  place-items: center;
-  font-size: clamp(8px, 1.6667cqi, 18px);
-}
-
-.gf-battle-footer__sound i {
-  inline-size: clamp(3px, 0.9259cqi, 10px);
-  background: #eeffee;
-}
-
-.gf-battle-footer__sound i:nth-last-child(-n + 4) {
-  opacity: 0.18;
+  padding-inline: 0;
 }
 
 .gf-result {

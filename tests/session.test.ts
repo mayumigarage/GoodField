@@ -21,8 +21,8 @@ import type {
 } from "../packages/shared/src/model.ts";
 
 const STARTED_AT = "2026-07-26T00:00:00.000Z";
-const BEFORE_DEADLINE = "2026-07-26T00:00:14.999Z";
-const DEADLINE = "2026-07-26T00:00:15.000Z";
+const BEFORE_DEADLINE = "2026-07-26T00:00:29.999Z";
+const DEADLINE = "2026-07-26T00:00:30.000Z";
 
 function card(
   instanceId: string,
@@ -131,7 +131,7 @@ test("online action timeout disconnects the human and continues from the pending
   assert.equal(timedOut.state.phase, "REACTION_SELECTION");
   assert.equal(
     timedOut.state.inputDeadlineAt,
-    "2026-07-26T00:00:30.000Z"
+    "2026-07-26T00:01:00.000Z"
   );
 
   const replay = processInputDeadline(state, DEADLINE);
@@ -143,7 +143,7 @@ test("online action timeout disconnects the human and continues from the pending
     commandId: "late-human-after-takeover",
     actorId,
     expectedRevision: timedOut.state.revision,
-    occurredAt: "2026-07-26T00:00:16.000Z"
+    occurredAt: "2026-07-26T00:00:31.000Z"
   });
   assert.equal(staleHuman.ok, false);
   if (staleHuman.ok) return;
@@ -190,7 +190,7 @@ test("online defense timeout uses the same reaction and then yields to the next 
   assert.equal(timedOut.state.players[targetId]?.controller, "CPU");
   assert.equal(timedOut.state.activePlayerId, nextPlayerId);
   assert.equal(timedOut.state.players[nextPlayerId]?.controller, "HUMAN");
-  assert.equal(timedOut.state.inputDeadlineAt, "2026-07-26T00:00:30.000Z");
+  assert.equal(timedOut.state.inputDeadlineAt, "2026-07-26T00:01:00.000Z");
 });
 
 test("online trade confirmation timeout is accepted through the CPU command path", () => {
@@ -265,7 +265,7 @@ test("reconnection changes only connection state and does not restore human cont
     timedOut.state,
     actorId,
     true,
-    "2026-07-26T00:00:16.000Z"
+    "2026-07-26T00:00:31.000Z"
   );
   assert.equal(reconnected.events[0]?.type, "PLAYER_CONNECTION_CHANGED");
   assert.equal(reconnected.state.players[actorId]?.disconnected, false);

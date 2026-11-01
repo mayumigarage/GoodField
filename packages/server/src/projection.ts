@@ -13,6 +13,7 @@ import type {
   GameViewState,
   LegalActionView,
   PlayerPublicView,
+  SaleProductView,
   SelfPrivateView
 } from "../../shared/src/protocol.ts";
 import {
@@ -505,6 +506,27 @@ function privateSelf(state: MatchState, playerId: string): SelfPrivateView | nul
   };
 }
 
+// A sale is public: every viewer sees the offered artifact on the field.
+function pendingSaleProduct(state: MatchState): SaleProductView | null {
+  const pending = state.pendingAction;
+  if (
+    pending?.kind !== "ATTACK" ||
+    pending.deferredTargetedCardEffect?.kind !== "SELL"
+  ) {
+    return null;
+  }
+  const { productCardInstanceId } = pending.deferredTargetedCardEffect;
+  const product = state.players[pending.actionOwnerId]?.hand.find(
+    ({ instanceId }) => instanceId === productCardInstanceId
+  );
+  return product
+    ? {
+        cardInstanceId: product.instanceId,
+        cardDefinitionId: visibleOwnCard(product).cardDefinitionId
+      }
+    : null;
+}
+
 export function projectGameView(
   state: MatchState,
   viewerPlayerId: string | null
@@ -538,7 +560,8 @@ export function projectGameView(
           ],
           element: pendingAttack.element,
           power: pendingAttack.power,
-          hit: pendingAttack.hit
+          hit: pendingAttack.hit,
+          saleProduct: pendingSaleProduct(state)
         }
       : null,
     players: Object.values(state.players)

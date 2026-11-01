@@ -15,7 +15,11 @@ import {
   initialUiState,
   selectActionCard,
   selectDefenseCard,
-  synchronizeUiState
+  prepareExchangeSubmission,
+  synchronizeUiState,
+  toggleExchangeDraft,
+  toggleHandActionMode,
+  updateExchangeDraft
 } from "../packages/client/src/ui-machine.ts";
 import { createMatch, handleCommand } from "../packages/server/src/engine.ts";
 import {
@@ -155,6 +159,7 @@ test("match result keeps the final board, shows the winner to a losing viewer, a
   assert.match(html, /data-exit-match[\s\S]*?href="\/training\/setup"/u);
   assert.match(html, />戦いを終わる<\/a>/u);
   for (const button of html.match(/<button[\s\S]*?<\/button>/gu) ?? []) {
+    if (button.includes("data-sound-mute")) continue;
     assert.match(button, /\sdisabled(?:\s|>)/u);
   }
   assert.match(BATTLE_SCREEN_STYLES, /\.gf-result\s*\{[\s\S]*?position: fixed/u);
@@ -722,6 +727,72 @@ test("pray uses the full action staging lane and exposes its hover surface", () 
   );
 });
 
+test("discard is a toggle that discards eligible hand cards without opening utility UI", () => {
+  const original = createMatch({
+    matchId: "discard-toggle-screen",
+    seed: "discard-toggle-screen-seed",
+    players: [
+      { playerId: "a", displayName: "Alice" },
+      { playerId: "b", displayName: "Bob" }
+    ]
+  }).state;
+  const actorId = original.activePlayerId;
+  assert.ok(actorId);
+  const actor = original.players[actorId];
+  assert.ok(actor);
+  const state: MatchState = {
+    ...original,
+    players: {
+      ...original.players,
+      [actorId]: {
+        ...actor,
+        hand: [
+          {
+            instanceId: "discardable-cap",
+            cardDefinitionId: "leather-cap",
+            dreamDisguiseCardDefinitionId: null
+          },
+          {
+            instanceId: "kept-weapon",
+            cardDefinitionId: "bronze-club",
+            dreamDisguiseCardDefinitionId: null
+          }
+        ]
+      }
+    }
+  };
+  const view = projectGameView(state, actorId);
+  const initial = synchronizeUiState(initialUiState(), view);
+  const initialHtml = renderBattleScreen(view, initial);
+
+  assert.match(
+    initialHtml,
+    /data-toggle-hand-action="DISCARD"[\s\S]*?aria-pressed="false"/u
+  );
+  assert.doesNotMatch(initialHtml, /data-utility-form="DISCARD"/u);
+  assert.doesNotMatch(initialHtml, /<summary>その他の行動<\/summary>/u);
+
+  const active = toggleHandActionMode(initial, "DISCARD");
+  const activeHtml = renderBattleScreen(view, active);
+  assert.match(
+    activeHtml,
+    /data-toggle-hand-action="DISCARD"[\s\S]*?aria-pressed="true"/u
+  );
+  assert.match(
+    activeHtml,
+    /data-submit-hand-action="DISCARD" data-hand-action-card-instance="discardable-cap"/u
+  );
+  assert.doesNotMatch(
+    activeHtml,
+    /data-submit-hand-action="DISCARD" data-hand-action-card-instance="kept-weapon"/u
+  );
+  const weaponButton = (
+    activeHtml.match(/<button[\s\S]*?<\/button>/gu) ?? []
+  ).find((button) => button.includes('data-select-card="kept-weapon"'));
+  assert.ok(weaponButton);
+  assert.match(weaponButton, /\sdisabled(?:\s|>)/u);
+});
+
 test("exchange card opens its utility UI and reallocates MP and money from HP", () => {
   const original = createMatch({
     matchId: "exchange-screen",
@@ -756,19 +827,39 @@ test("exchange card opens its utility UI and reallocates MP and money from HP", 
   };
   const view = projectGameView(state, actorId);
   const ui = synchronizeUiState(initialUiState(), view);
-  const html = renderBattleScreen(view, ui);
+  const closedHtml = renderBattleScreen(view, ui);
 
   assert.match(
-    html,
+    closedHtml,
     /data-open-utility="EXCHANGE_RESOURCES" data-utility-card-instance="screen-exchange"/u
   );
-  const renderedButtons = html.match(/<button[\s\S]*?<\/button>/gu) ?? [];
-  const exchangeCardButton = renderedButtons.find((button) =>
+  assert.doesNotMatch(closedHtml, /data-exchange-adjust/u);
+  const closedButtons =
+    closedHtml.match(/<button[\s\S]*?<\/button>/gu) ?? [];
+  const exchangeCardButton = closedButtons.find((button) =>
     button.includes('data-open-utility="EXCHANGE_RESOURCES"')
   );
   assert.ok(exchangeCardButton);
   assert.doesNotMatch(exchangeCardButton, /\sdisabled(?:\s|>)/u);
-  assert.match(html, /data-utility-form="EXCHANGE_RESOURCES"/u);
+
+  const opened = toggleExchangeDraft(ui, "screen-exchange", view);
+  const html = renderBattleScreen(view, opened);
+  const renderedButtons = html.match(/<button[\s\S]*?<\/button>/gu) ?? [];
+  assert.equal(
+    toggleExchangeDraft(opened, "screen-exchange", view).exchangeDraft,
+    null
+  );
+  assert.deepEqual(
+    synchronizeUiState(opened, view).exchangeDraft,
+    opened.exchangeDraft
+  );
+  assert.doesNotMatch(html, /data-utility-form="EXCHANGE_RESOURCES"/u);
+  const prayButton = renderedButtons.find((button) =>
+    button.includes("data-submit-pray")
+  );
+  assert.ok(prayButton);
+  assert.match(prayButton, /\sdisabled(?:\s|>)/u);
+  assert.match(html, /class="gf-action__confirm" data-submit-exchange/u);
   assert.match(html, /data-exchange-adjust="mp:10"/u);
   assert.match(html, /data-exchange-adjust="money:10"/u);
   assert.doesNotMatch(html, /data-exchange-adjust="hp:/u);
@@ -793,6 +884,38 @@ test("exchange card opens its utility UI and reallocates MP and money from HP", 
   assert.match(
     html,
     /¥ <output data-exchange-output="money">10<\/output>/
+  );
+
+  const adjusted = updateExchangeDraft(opened, {
+    hp: 39,
+    mp: 0,
+    money: 0
+  });
+  assert.match(
+    renderBattleScreen(view, adjusted),
+    /HP <output data-exchange-output="hp">39<\/output>/
+  );
+  const prepared = prepareExchangeSubmission(
+    adjusted,
+    view,
+    () => "exchange-command"
+  );
+  assert.ok(prepared);
+  assert.equal(prepared.command.type, "EXCHANGE_RESOURCES");
+  assert.deepEqual(
+    prepared.command.type === "EXCHANGE_RESOURCES"
+      ? [
+          prepared.command.cardInstanceId,
+          prepared.command.hp,
+          prepared.command.mp,
+          prepared.command.money
+        ]
+      : [],
+    ["screen-exchange", 39, 0, 0]
+  );
+  assert.doesNotMatch(
+    renderBattleScreen(view, prepared.ui),
+    /data-exchange-adjust/u
   );
 
   assert.deepEqual(
@@ -1233,7 +1356,8 @@ test("self attacks match the recorded 500/1000ms combat sequence", () => {
       sourceCardDefinitionIds: ["god-sword"],
       element: "PHYSICAL" as const,
       power: 50,
-      hit: null
+      hit: null,
+      saleProduct: null
     }
   };
   const overlappingDamageHtml = renderBattleScreen(
@@ -1778,6 +1902,93 @@ test("another player's action remains visible and locks the viewer's new turn un
   assert.match(html, /data-game-input-disabled="false"/u);
 });
 
+test("exchange reveal stages before, arrow, and after while the player list holds", () => {
+  const original = createMatch({
+    matchId: "exchange-stages",
+    seed: "exchange-stages-seed",
+    players: [
+      { playerId: "a", displayName: "Alice" },
+      { playerId: "b", displayName: "Bob" }
+    ]
+  }).state;
+  const actorId = original.activePlayerId;
+  assert.ok(actorId);
+  const actor = original.players[actorId];
+  assert.ok(actor);
+  const state: MatchState = {
+    ...original,
+    players: {
+      ...original.players,
+      [actorId]: {
+        ...actor,
+        hp: 9,
+        mp: 10,
+        money: 20,
+        hand: [
+          {
+            instanceId: "stage-exchange",
+            cardDefinitionId: "exchange",
+            dreamDisguiseCardDefinitionId: null
+          }
+        ]
+      }
+    }
+  };
+  const exchanged = handleCommand(state, {
+    type: "EXCHANGE_RESOURCES",
+    matchId: state.matchId,
+    commandId: "stage-exchange-command",
+    actorId,
+    expectedRevision: state.revision,
+    cardInstanceId: "stage-exchange",
+    hp: 29,
+    mp: 0,
+    money: 10
+  });
+  assert.equal(exchanged.ok, true);
+  if (!exchanged.ok) return;
+  const view = projectGameView(exchanged.state, actorId);
+  const ui = synchronizeUiState(initialUiState(), view);
+  let presentation = enqueuePresentationEvents(
+    createPresentationQueue(),
+    exchanged.events.filter(
+      ({ type }) =>
+        type === "ACTION_DECLARED" || type === "RESOURCES_EXCHANGED"
+    ),
+    view,
+    0
+  );
+  const renderAt = (nowMs: number): string => {
+    presentation = advancePresentationClock(presentation, nowMs);
+    return renderBattleScreen(view, ui, {}, presentation, nowMs);
+  };
+  const playerList = (html: string): string =>
+    html.slice(html.indexOf('data-region="players"'));
+
+  const declared = renderAt(0);
+  assert.doesNotMatch(declared, /data-exchange-result-stage/u);
+  assert.match(playerList(declared), /<dt>HP<\/dt><dd>9<\/dd>/u);
+
+  const before = renderAt(500);
+  assert.match(before, /data-exchange-result-stage="0"/u);
+  assert.match(before, /<b>9<\/b>/u);
+  assert.doesNotMatch(before, /class="gf-exchange__arrow"/u);
+  assert.doesNotMatch(before, /data-exchange-row="after">/u);
+
+  const arrow = renderAt(1_000);
+  assert.match(arrow, /class="gf-exchange__arrow"/u);
+  assert.doesNotMatch(arrow, /data-exchange-row="after">/u);
+
+  const after = renderAt(1_500);
+  assert.match(after, /data-exchange-row="after">/u);
+  assert.match(after, /<b>29<\/b>/u);
+  assert.match(playerList(after), /<dt>HP<\/dt><dd>9<\/dd>/u);
+
+  const settled = renderAt(3_000);
+  assert.doesNotMatch(settled, /data-exchange-result-stage/u);
+  assert.match(playerList(settled), /<dt>HP<\/dt><dd>29<\/dd>/u);
+});
+
 test("a following CPU attack stays hidden until the current attack presentation settles", () => {
   const state = createMatch({
     matchId: "deferred-cpu-attack",
@@ -1806,7 +2017,8 @@ test("a following CPU attack stays hidden until the current attack presentation 
     sourceCardDefinitionIds: ["bronze-club"],
     element: "PHYSICAL" as const,
     power: 5,
-    hit: null
+    hit: null,
+    saleProduct: null
   };
   const latestView = {
     ...view,
@@ -1826,7 +2038,8 @@ test("a following CPU attack stays hidden until the current attack presentation 
       sourceCardDefinitionIds: ["crossbow"],
       element: "PHYSICAL" as const,
       power: 7,
-      hit: null
+      hit: null,
+      saleProduct: null
     }
   };
   const baseEvent = {

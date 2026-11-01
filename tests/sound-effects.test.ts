@@ -4,6 +4,7 @@ import test from "node:test";
 import type { DomainEvent } from "../packages/shared/src/model.ts";
 import {
   SoundEffectPlayer,
+  immediateSoundEvents,
   soundEffectForEvent
 } from "../packages/client/src/sound-effects.ts";
 
@@ -13,6 +14,22 @@ const eventBase = {
   occurredAt: "2026-07-28T00:00:00.000Z",
   visibility: { scope: "PUBLIC" as const }
 };
+
+test("a replacement card does not double the sound of the declared action", () => {
+  const grant = {
+    ...eventBase,
+    type: "CARD_GRANTED",
+    playerId: "p1"
+  } as unknown as DomainEvent;
+  const declared = {
+    ...eventBase,
+    type: "ACTION_DECLARED",
+    playerId: "p1"
+  } as unknown as DomainEvent;
+
+  assert.deepEqual(immediateSoundEvents([declared, grant]), [declared]);
+  assert.deepEqual(immediateSoundEvents([grant]), [grant]);
+});
 
 test("domain events select the matching original GoodField effects", () => {
   assert.equal(
@@ -87,5 +104,5 @@ test("sound player resolves public sound paths and applies its game volume", () 
 
   player.play("damage");
 
-  assert.deepEqual(calls, [{ source: "/sounds/damage.mp3", volume: 0.55 }]);
+  assert.deepEqual(calls, [{ source: "/sounds/damage.mp3", volume: 0.6 }]);
 });

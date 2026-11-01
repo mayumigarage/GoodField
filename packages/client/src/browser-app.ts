@@ -16,10 +16,12 @@ import {
   type OnlineLobbyMount,
   type OnlineRoomTransport
 } from "./online-lobby.ts";
+import { renderSoundControl } from "./sound-control.ts";
 import { initialUiState } from "./ui-machine.ts";
 
 const LOCAL_ACTOR_STORAGE_KEY = "goodfield.local-actor.v1";
 const ONLINE_ADMISSION_STORAGE_KEY = "goodfield.online-admission.v1";
+const ONLINE_RESUME_STORAGE_KEY = "goodfield.online-resume.v1";
 const BATTLE_STYLE_ID = "goodfield-battle-screen-styles";
 
 export type LocalActorCredential = {
@@ -336,6 +338,8 @@ export function mountGoodFieldBrowserApp(
   let reconnectAttempt = 0;
   let credential: LocalActorCredential | null = null;
   let onlineCredential: OnlineBrowserCredential | null = null;
+  let resumeCredential: OnlineBrowserCredential | null = null;
+  let selfHumanControlled = false;
   let disposed = false;
 
   const saveCredential = (): void => {
@@ -358,6 +362,17 @@ export function mountGoodFieldBrowserApp(
       ONLINE_ADMISSION_STORAGE_KEY,
       JSON.stringify(onlineCredential)
     );
+  };
+
+  const setResumeCredential = (
+    next: OnlineBrowserCredential | null
+  ): void => {
+    resumeCredential = next;
+    if (next) {
+      storage.setItem(ONLINE_RESUME_STORAGE_KEY, JSON.stringify(next));
+    } else {
+      storage.removeItem(ONLINE_RESUME_STORAGE_KEY);
+    }
   };
 
   const stopConnection = (): void => {
@@ -549,6 +564,22 @@ export function mountGoodFieldBrowserApp(
         lastEventSeq: realtime.eventSeq
       };
       saveOnlineCredential();
+      const selfId = realtime.snapshot.self?.playerId ?? null;
+      const selfController = realtime.snapshot.players.find(
+        (player) => player.playerId === selfId
+      )?.controller;
+      if (
+        selfHumanControlled &&
+        selfController === "CPU" &&
+        !realtime.snapshot.result
+      ) {
+        setResumeCredential(onlineCredential);
+        showStart(
+          "接続が切れたためCPUに交代しました。名前を入力して生誕すると再接続します。"
+        );
+        return;
+      }
+      if (selfController === "HUMAN") selfHumanControlled = true;
       battle?.applyRealtimeMessage(realtime);
     });
     realtimeSocket.addEventListener("close", (event) => {
@@ -637,6 +668,11 @@ export function mountGoodFieldBrowserApp(
     saveCredential();
     onlineCredential = activeCredential;
     saveOnlineCredential();
+    setResumeCredential(null);
+    selfHumanControlled =
+      snapshot.players.find(
+        (player) => player.playerId === snapshot.self?.playerId
+      )?.controller === "HUMAN";
     ensureBattleStyles(documentObject);
     root.innerHTML = "";
     const battleRoot = documentObject.createElement("div");
@@ -645,7 +681,7 @@ export function mountGoodFieldBrowserApp(
       battleRoot,
       snapshot,
       initialUiState(),
-      { exitHref: "#new-match" },
+      { exitHref: "#online-lobby" },
       {
         onCommand(command) {
           const current = onlineCredential;
@@ -709,6 +745,7 @@ export function mountGoodFieldBrowserApp(
     saveCredential();
     onlineCredential = admissionCredential(admission, previous);
     saveOnlineCredential();
+    setResumeCredential(null);
     root.innerHTML = "";
     const lobbyRoot = documentObject.createElement("div");
     root.append(lobbyRoot);
@@ -757,6 +794,37 @@ export function mountGoodFieldBrowserApp(
     });
   };
 
+  const resumeOnline = async (
+    resume: OnlineBrowserCredential
+  ): Promise<boolean> => {
+    if (!resume.participantId || !resume.rejoinToken) {
+      setResumeCredential(null);
+      return false;
+    }
+    renderNotice("ルームへ再接続しています…");
+    try {
+      const admission = await onlineTransport.rejoin(resume.roomId, {
+        participantId: resume.participantId,
+        rejoinToken: resume.rejoinToken,
+        requestId: `browser-${globalThis.crypto.randomUUID()}`
+      });
+      clearNotice();
+      if (admission.snapshot && admission.room.matchId) {
+        showOnlineBattle(
+          admission.snapshot,
+          admissionCredential(admission, resume)
+        );
+      } else {
+        showOnlineLobby(admission, resume);
+      }
+      return true;
+    } catch {
+      setResumeCredential(null);
+      renderNotice("前のルームへ再接続できませんでした。", "error");
+      return false;
+    }
+  };
+
   const showStart = (message?: string): void => {
     stopBattle();
     credential = null;
@@ -764,11 +832,6 @@ export function mountGoodFieldBrowserApp(
     onlineCredential = null;
     saveOnlineCredential();
     let displayName = "Player";
-
-    const soundMeter = Array.from(
-      { length: 10 },
-      () => "<span aria-hidden=\"true\"></span>"
-    ).join("");
 
     const renderFrame = (
       screenTitle: string,
@@ -809,7 +872,7 @@ export function mountGoodFieldBrowserApp(
               <span class="gf-gear-icon" aria-hidden="true"></span>
               設定
             </button>
-            <span class="gf-sound-meter" aria-label="音量">${soundMeter}</span>
+            ${renderSoundControl()}
           </footer>
           <aside class="gf-settings-drawer" data-settings-drawer hidden>
             <p>GoodField 設定</p>
@@ -1023,9 +1086,7 @@ export function mountGoodFieldBrowserApp(
         "隠れ乱闘",
         `
           <section class="gf-setup-panel gf-setup-panel--passphrase"
-            aria-labelledby="hidden-brawl-title">
-            <h2 id="hidden-brawl-title">部屋の合言葉</h2>
-            <p>友達と共有した合言葉を入力してください。</p>
+            aria-label="部屋の合言葉">
             <form class="gf-setup-form" data-passphrase-form>
               <label>
                 <span>部屋の合言葉</span>
@@ -1167,6 +1228,17 @@ export function mountGoodFieldBrowserApp(
         ).trim();
         if (nextName.length === 0) return;
         displayName = nextName;
+        const resume =
+          resumeCredential ??
+          parseStoredOnlineCredential(
+            storage.getItem(ONLINE_RESUME_STORAGE_KEY)
+          );
+        if (resume) {
+          void resumeOnline(resume).then((resumed) => {
+            if (!resumed && !disposed) renderModes();
+          });
+          return;
+        }
         renderModes();
       });
     }
@@ -1259,6 +1331,34 @@ export function mountGoodFieldBrowserApp(
   root.addEventListener("click", (event) => {
     const target = event.target;
     if (!(target instanceof Element)) return;
+    if (target.closest('a[href="#online-lobby"]')) {
+      event.preventDefault();
+      const current = onlineCredential;
+      if (!current) {
+        showStart();
+        return;
+      }
+      void onlineTransport.returnToLobby(current.roomId, current.csrfToken)
+        .then((room) => {
+          showOnlineLobby({
+            room,
+            participantId: current.participantId,
+            csrfToken: current.csrfToken,
+            ...(current.inviteUrl === null
+              ? {}
+              : { inviteUrl: current.inviteUrl })
+          }, current);
+        })
+        .catch((error: unknown) => {
+          renderNotice(
+            error instanceof Error
+              ? error.message
+              : "ロビーへ戻れませんでした。",
+            "error"
+          );
+        });
+      return;
+    }
     const link = target.closest<HTMLAnchorElement>('a[href="#new-match"]');
     if (!link) return;
     event.preventDefault();
