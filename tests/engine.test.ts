@@ -1141,6 +1141,34 @@ test("ogre armor attacks alone, stacks on a weapon, and still offers its defense
   assert.equal(defended.defenseValueByCardInstanceId["target-ogre"], 7);
 });
 
+test("a +attack weapon attacks alone and is offered as a standalone action", () => {
+  const setup = withHands(
+    createTwoPlayerMatch("plus-attack-alone").state,
+    [card("dart", "blowgun")],
+    [card("target-ogre", "ogre-s-helm")]
+  );
+  const result = handleCommand(setup.state, {
+    type: "DECLARE_ACTION",
+    matchId: setup.state.matchId,
+    commandId: "plus-alone",
+    actorId: setup.actorId,
+    expectedRevision: setup.state.revision,
+    cardInstanceIds: ["dart"],
+    targetPlayerId: setup.targetId
+  });
+  assert.equal(result.ok, true);
+  if (!result.ok || result.state.pendingAction?.kind !== "ATTACK") return;
+  assert.equal(result.state.pendingAction.attack.power, 1);
+
+  const actions = projectGameView(setup.state, setup.actorId).self?.legalActions;
+  assert.ok(
+    actions?.some(
+      (action) =>
+        action.type === "DECLARE_ACTION" && action.cardInstanceIds[0] === "dart"
+    )
+  );
+});
+
 test("a direct healing miracle spends MP, becomes learned, and resolves on its user", () => {
   const setup = withHands(
     createTwoPlayerMatch("spring").state,
@@ -2353,6 +2381,45 @@ test("rainbow curtain filters an elemental attack before ordinary defense", () =
   );
 });
 
+test("counter rings only trigger when their element can block the attack", () => {
+  const countersAttacker = (ringId: string) => {
+    const setup = withHands(
+      createTwoPlayerMatch(`ring-${ringId}`).state,
+      [card("torch", "torch")],
+      [card("ring", ringId)]
+    );
+    const action = handleCommand(setup.state, {
+      type: "DECLARE_ACTION",
+      matchId: setup.state.matchId,
+      commandId: "fire-attack",
+      actorId: setup.actorId,
+      expectedRevision: setup.state.revision,
+      cardInstanceIds: ["torch"],
+      targetPlayerId: setup.targetId
+    });
+    assert.equal(action.ok, true);
+    if (!action.ok || action.state.pendingAction?.kind !== "ATTACK") return null;
+    const reaction = handleCommand(action.state, {
+      type: "DECLARE_REACTION",
+      matchId: action.state.matchId,
+      commandId: "ring-defense",
+      actorId: setup.targetId,
+      expectedRevision: action.state.revision,
+      reactionId: action.state.pendingAction.attack.reactionId,
+      defenseCardInstanceIds: ["ring"]
+    });
+    assert.equal(reaction.ok, true);
+    if (!reaction.ok) return null;
+    const pending = reaction.state.pendingAction;
+    return (
+      pending?.kind === "ATTACK" &&
+      pending.deferredTargetedCardEffect?.kind === "COUNTER"
+    );
+  };
+  assert.equal(countersAttacker("mercury-ring"), true);
+  assert.equal(countersAttacker("jupiter-ring"), false);
+});
+
 test("on-damage weapon effects apply their calamity after positive damage", () => {
   const setup = withHands(
     createTwoPlayerMatch("on-damage-calamity").state,
@@ -3258,6 +3325,79 @@ test("dangerous pestle deals 99 power to a holder of dangerous mortar", () => {
     reaction.state.players[setup.targetId]?.alive,
     false
   );
+});
+
+test("dangerous pestle kills a dangerous mortar holder through a sun amulet", () => {
+  const setup = withHands(
+    createTwoPlayerMatch("dangerous-doom").state,
+    [card("pestle", "dangerous-pestle")],
+    [card("mortar", "dangerous-mortar"), card("amulet", "sun-amulet")],
+    99
+  );
+  const action = handleCommand(setup.state, {
+    type: "DECLARE_ACTION",
+    matchId: setup.state.matchId,
+    commandId: "dangerous-doom-attack",
+    actorId: setup.actorId,
+    expectedRevision: setup.state.revision,
+    cardInstanceIds: ["pestle"],
+    targetPlayerId: setup.actorId
+  });
+  assert.equal(action.ok, true);
+  if (!action.ok) return;
+  // The holder is chosen regardless of the declared target, and cannot defend.
+  assert.notEqual(action.state.phase, "REACTION_SELECTION");
+  assert.equal(
+    action.events.some(({ type }) => type === "REVIVAL_RESOLVED"),
+    false
+  );
+  assert.equal(action.state.players[setup.targetId]?.alive, false);
+});
+
+test("dangerous pestle falls on a random living player, the user included", () => {
+  const hit = new Set<string>();
+  for (let index = 0; index < 40 && hit.size < 2; index += 1) {
+    const setup = withHands(
+      createTwoPlayerMatch(`pestle-random-${index}`).state,
+      [card("pestle", "dangerous-pestle")],
+      [],
+      99
+    );
+    const action = handleCommand(setup.state, {
+      type: "DECLARE_ACTION",
+      matchId: setup.state.matchId,
+      commandId: `pestle-random-${index}`,
+      actorId: setup.actorId,
+      expectedRevision: setup.state.revision,
+      cardInstanceIds: ["pestle"],
+      targetPlayerId: setup.targetId
+    });
+    assert.equal(action.ok, true);
+    if (!action.ok) return;
+    const declared = action.events.find(
+      ({ type }) => type === "ACTION_DECLARED"
+    );
+    assert.ok(declared && declared.type === "ACTION_DECLARED");
+    if (declared?.type !== "ACTION_DECLARED") return;
+    const victimId = declared.targetPlayerId;
+    assert.ok(victimId);
+    hit.add(victimId === setup.actorId ? "self" : "other");
+    if (victimId === setup.actorId) {
+      // Hitting yourself leaves no room for a defense reaction.
+      assert.notEqual(action.state.phase, "REACTION_SELECTION");
+      const damage = action.events.find(
+        ({ type }) => type === "DAMAGE_APPLIED"
+      );
+      assert.ok(damage && damage.type === "DAMAGE_APPLIED");
+      if (damage?.type === "DAMAGE_APPLIED") {
+        assert.equal(damage.playerId, setup.actorId);
+        assert.equal(damage.amount, 30);
+      }
+    } else {
+      assert.equal(action.state.phase, "REACTION_SELECTION");
+    }
+  }
+  assert.equal(hit.size, 2);
 });
 
 test("ascension bow fires a deterministic 75 percent counter before ascension", () => {

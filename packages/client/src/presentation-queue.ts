@@ -25,6 +25,8 @@ export type PresentationTimingProfile = {
   localSelectionDelayMs: number;
 };
 
+export const DANGEROUS_PESTLE_HOLD_MS = 2_000;
+
 export const OFFICIAL_WEB_2026_07_25: PresentationTimingProfile = {
   profileId: "OFFICIAL_WEB_2026_07_25",
   introHoldMs: 6_000,
@@ -247,10 +249,21 @@ function definitionsForEvent(
         );
       }
       if (event.actionType === "DECLARE_ACTION") {
-        return stagedCardReveal(
+        const stages = stagedCardReveal(
           event.actionCardDefinitionIds?.length ?? 0,
           profile.attackStageMs
         );
+        if (event.actionCardDefinitionIds?.includes("dangerous-pestle")) {
+          // A heavy blow: keep the pestle on screen before the attack moves on.
+          const last = stages[stages.length - 1];
+          if (last) {
+            last.durationMs = Math.max(
+              last.durationMs,
+              DANGEROUS_PESTLE_HOLD_MS
+            );
+          }
+        }
+        return stages;
       }
       return [{ kind: "ACTION", durationMs: profile.stageGapMs }];
     case "ATTACK_CREATED":

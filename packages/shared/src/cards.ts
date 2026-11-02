@@ -56,15 +56,10 @@ export function instructionsOfKind<K extends EffectInstruction["kind"]>(
 }
 
 /**
- * 鬼の防具シリーズは「+攻」(追加攻撃)でありながら、単体でも攻撃の主役になれる。
- * それ以外の追加攻撃(+攻の武器など)は主役の攻撃が別に必要。
+ * 「+攻」(追加攻撃)も他の攻撃に加算できるだけでなく、単体でも攻撃の主役になれる。
  */
 export function attackStandsAlone(definition: CardDefinition): boolean {
-  const attack = instructionsOfKind(definition, "ATTACK")[0];
-  return (
-    attack !== undefined &&
-    (!attack.additive || definition.category === "ARMOR")
-  );
+  return instructionsOfKind(definition, "ATTACK")[0] !== undefined;
 }
 
 export function validateStandardCatalog(): string[] {
