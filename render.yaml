@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: goodfield
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /health/ready
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      - key: GOODFIELD_HOST
+        value: 0.0.0.0
+      - key: GOODFIELD_PORT
+        value: "10000"
+      - key: GOODFIELD_COOKIE_SECURE
+        value: "true"
+      - key: GOODFIELD_SESSION_SECRET
+        generateValue: true
+      - key: GOODFIELD_ROOM_SECRET
+        generateValue: true
