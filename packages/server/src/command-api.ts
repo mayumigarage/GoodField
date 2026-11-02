@@ -198,8 +198,9 @@ export function parseGameCommandRequest(value: unknown): ParsedCommand {
     case "DISCARD":
     case "SACRIFICE":
       if (
-        !hasOnlyKeys(value, [...baseKeys, "cardInstanceId"]) ||
-        !isNonEmptyString(value.cardInstanceId)
+        !hasOnlyKeys(value, [...baseKeys, "cardInstanceIds"]) ||
+        !isStringArray(value.cardInstanceIds) ||
+        value.cardInstanceIds.length === 0
       ) {
         return invalid(value, `${value.type} payload is invalid`);
       }
@@ -208,7 +209,7 @@ export function parseGameCommandRequest(value: unknown): ParsedCommand {
         command: {
           ...base,
           type: value.type,
-          cardInstanceId: value.cardInstanceId
+          cardInstanceIds: value.cardInstanceIds
         }
       };
     case "EXCHANGE_RESOURCES":

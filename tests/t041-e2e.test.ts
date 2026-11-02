@@ -310,7 +310,7 @@ test("T-041 end-time demon can end the match at the current GF through the full 
     actorId,
     expectedRevision: state.revision,
     occurredAt: NOW,
-    cardInstanceId: "sacrifice"
+    cardInstanceIds: ["sacrifice"]
   });
   assert.equal(result.ok, true);
   if (!result.ok) return;

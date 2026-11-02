@@ -20,6 +20,7 @@ import {
   canDefenseBlock,
   canPray,
   hasCounterOrFilterEffect,
+  isDiscardableDefinition,
   isSupportedDirectAction,
   reactionEffectFor
 } from "./engine.ts";
@@ -95,12 +96,7 @@ export function projectDomainEvent(
 }
 
 function discardable(card: CardInstance): boolean {
-  const definition = definitionFor(card);
-  return (
-    definition.category !== "WEAPON" &&
-    definition.cardDefinitionId !== "sun-amulet" &&
-    definition.cardDefinitionId !== "dangerous-mortar"
-  );
+  return isDiscardableDefinition(definitionFor(card));
 }
 
 function composesWithPrimaryAttack(definition: CardDefinition): boolean {

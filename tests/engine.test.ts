@@ -6,8 +6,10 @@ import {
   createMatch,
   handleCommand
 } from "../packages/server/src/engine.ts";
+import { projectGameView } from "../packages/server/src/projection.ts";
 import type {
   CardInstance,
+  GameCommand,
   MatchState,
   PlayerState
 } from "../packages/shared/src/model.ts";
@@ -190,7 +192,7 @@ test("ordinary discard consumes a card without creating a grant obligation", () 
     commandId: "ordinary-discard",
     actorId: setup.actorId,
     expectedRevision: setup.state.revision,
-    cardInstanceId: "discarded-card"
+    cardInstanceIds: ["discarded-card"]
   });
 
   assert.equal(result.ok, true);
@@ -204,6 +206,101 @@ test("ordinary discard consumes a card without creating a grant obligation", () 
     result.events.some(({ type }) => type === "CARD_GRANTED"),
     false
   );
+});
+
+test("ordinary discard accepts only armor, goods, miracles and trade cards", () => {
+  const hand = [
+    card("discard-armor", "leather-cap"),
+    card("discard-goods", "smile-dew"),
+    card("discard-miracle", "fireball"),
+    card("discard-trade", "exchange"),
+    card("discard-weapon", "bronze-club"),
+    card("discard-sun-amulet", "sun-amulet")
+  ];
+  const setup = withHands(
+    createTwoPlayerMatch("discard-categories").state,
+    hand,
+    []
+  );
+  const view = projectGameView(setup.state, setup.actorId);
+  const discard = view.self?.legalActions.find(
+    ({ type }) => type === "DISCARD"
+  );
+  assert.ok(discard && discard.type === "DISCARD");
+  assert.deepEqual(discard.cardInstanceIds, [
+    "discard-armor",
+    "discard-goods",
+    "discard-miracle",
+    "discard-trade"
+  ]);
+
+  for (const { instanceId } of hand) {
+    const result = handleCommand(setup.state, {
+      type: "DISCARD",
+      matchId: setup.state.matchId,
+      commandId: `discard-${instanceId}`,
+      actorId: setup.actorId,
+      expectedRevision: setup.state.revision,
+      cardInstanceIds: [instanceId]
+    });
+    assert.equal(
+      result.ok,
+      discard.cardInstanceIds.includes(instanceId),
+      instanceId
+    );
+    if (!result.ok) assert.equal(result.code, "INVALID_CARD_SELECTION");
+  }
+});
+
+test("ordinary discard removes several selected cards in one action", () => {
+  const setup = withHands(
+    createTwoPlayerMatch("multi-discard").state,
+    [
+      card("multi-armor", "leather-cap"),
+      card("multi-goods", "smile-dew"),
+      card("multi-kept", "bronze-club")
+    ],
+    []
+  );
+  const command = {
+    type: "DISCARD" as const,
+    matchId: setup.state.matchId,
+    commandId: "multi-discard",
+    actorId: setup.actorId,
+    expectedRevision: setup.state.revision
+  };
+  const result = handleCommand(setup.state, {
+    ...command,
+    cardInstanceIds: ["multi-armor", "multi-goods"]
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.deepEqual(
+    result.state.players[setup.actorId]?.hand.map(({ instanceId }) => instanceId),
+    ["multi-kept"]
+  );
+  const declared = result.events.find(({ type }) => type === "ACTION_DECLARED");
+  assert.ok(declared?.type === "ACTION_DECLARED");
+  assert.deepEqual(declared.actionCardDefinitionIds, ["leather-cap", "smile-dew"]);
+  assert.equal(
+    result.events.filter(({ type }) => type === "CARD_CONSUMED").length,
+    2
+  );
+  assert.equal(
+    result.events.some(({ type }) => type === "CARD_GRANTED"),
+    false
+  );
+
+  for (const cardInstanceIds of [
+    [],
+    ["multi-armor", "multi-armor"],
+    ["multi-armor", "multi-kept"]
+  ]) {
+    const rejected = handleCommand(setup.state, { ...command, cardInstanceIds });
+    assert.equal(rejected.ok, false, cardInstanceIds.join(","));
+    if (!rejected.ok) assert.equal(rejected.code, "INVALID_CARD_SELECTION");
+  }
 });
 
 test("a full hand keeps its newly granted card and discards only a prior card", () => {
@@ -315,7 +412,7 @@ test("an end-time grant draws a standard artifact through the 75 percent branch"
     commandId: "standard-end-time-grant",
     actorId: setup.actorId,
     expectedRevision: setup.state.revision,
-    cardInstanceId: "sacrifice"
+    cardInstanceIds: ["sacrifice"]
   });
   assert.equal(result.ok, true);
   if (!result.ok) return;
@@ -330,6 +427,33 @@ test("an end-time grant draws a standard artifact through the 75 percent branch"
   assert.deepEqual(
     result.state.randomLog.map(({ context }) => context),
     ["END_TIME_GRANT", "CARD_GRANT"]
+  );
+});
+
+test("sacrificing several cards grants once per sacrificed card", () => {
+  const setup = withEndTimeActor("standard-seed-0", [
+    card("sacrifice-a", "leather-cap"),
+    card("sacrifice-b", "bronze-club")
+  ]);
+  const result = handleCommand(setup.state, {
+    type: "SACRIFICE",
+    matchId: setup.state.matchId,
+    commandId: "multi-sacrifice",
+    actorId: setup.actorId,
+    expectedRevision: setup.state.revision,
+    cardInstanceIds: ["sacrifice-a", "sacrifice-b"]
+  });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(
+    result.events.filter(({ type }) => type === "GRANT_REQUESTED").length,
+    2
+  );
+  assert.equal(
+    result.state.players[setup.actorId]?.hand.some(({ instanceId }) =>
+      instanceId.startsWith("sacrifice-")
+    ),
+    false
   );
 });
 
@@ -350,7 +474,7 @@ test("small, medium, and large demons deal 10, 20, and 30 damage before the gran
       commandId: `damage-demon-${expectedDamage}`,
       actorId: setup.actorId,
       expectedRevision: setup.state.revision,
-      cardInstanceId: "sacrifice"
+      cardInstanceIds: ["sacrifice"]
     });
     assert.equal(result.ok, true);
     if (!result.ok) continue;
@@ -396,7 +520,7 @@ test("mischief removes at most two existing cards or learned miracles without re
     commandId: "mischief-grant",
     actorId: setup.actorId,
     expectedRevision: setup.state.revision,
-    cardInstanceId: "sacrifice"
+    cardInstanceIds: ["sacrifice"]
   });
   assert.equal(result.ok, true);
   if (!result.ok) return;
@@ -437,7 +561,7 @@ test("the fairy boosts one resource and the same obligation continues through la
     commandId: "fairy-chain",
     actorId: setup.actorId,
     expectedRevision: setup.state.revision,
-    cardInstanceId: "sacrifice"
+    cardInstanceIds: ["sacrifice"]
   });
   assert.equal(result.ok, true);
   if (!result.ok) return;
@@ -478,7 +602,7 @@ test("a lethal demon cancels its grant obligation and ends the match at the same
     commandId: "lethal-demon",
     actorId: setup.actorId,
     expectedRevision: setup.state.revision,
-    cardInstanceId: "sacrifice"
+    cardInstanceIds: ["sacrifice"]
   });
   assert.equal(result.ok, true);
   if (!result.ok) return;
@@ -507,7 +631,7 @@ test("end-time demon chains are deterministic for the same state and command", (
     commandId: "deterministic-demon-chain",
     actorId: setup.actorId,
     expectedRevision: setup.state.revision,
-    cardInstanceId: "sacrifice"
+    cardInstanceIds: ["sacrifice"]
   };
   const first = handleCommand(setup.state, command);
   const second = handleCommand(setup.state, command);
@@ -1152,7 +1276,7 @@ test("turn-end disease worsens before applying the resulting disease effect", ()
     commandId: "stable-disease",
     actorId,
     expectedRevision: stableState.revision,
-    cardInstanceId: "stable-discard"
+    cardInstanceIds: ["stable-discard"]
   });
   assert.equal(stable.ok, true);
   if (!stable.ok) return;
@@ -1187,7 +1311,7 @@ test("turn-end disease worsens before applying the resulting disease effect", ()
     commandId: "worsening-disease",
     actorId,
     expectedRevision: worseningState.revision,
-    cardInstanceId: "worsen-discard"
+    cardInstanceIds: ["worsen-discard"]
   });
   assert.equal(worsening.ok, true);
   if (!worsening.ok) return;
@@ -1241,7 +1365,7 @@ test("every disease applies its turn-end effect and heaven sickness can trigger 
       commandId: `resolve-${disease}`,
       actorId,
       expectedRevision: state.revision,
-      cardInstanceId
+      cardInstanceIds: [cardInstanceId]
     });
     assert.equal(result.ok, true);
     if (!result.ok) continue;
@@ -1270,7 +1394,7 @@ test("every disease applies its turn-end effect and heaven sickness can trigger 
     commandId: "fatal-heaven-sickness",
     actorId,
     expectedRevision: fatalState.revision,
-    cardInstanceId: "fatal-heaven-discard"
+    cardInstanceIds: ["fatal-heaven-discard"]
   });
   assert.equal(fatal.ok, true);
   if (!fatal.ok) return;
@@ -1384,14 +1508,14 @@ test("a guardian checks at 25 percent and resolves a weighted direct action", ()
       }
     }
   };
-  const command = {
+  const command: GameCommand = {
     type: "DISCARD",
     matchId: state.matchId,
     commandId: "guardian-direct",
     actorId,
     expectedRevision: state.revision,
-    cardInstanceId: "guardian-direct-discard"
-  } as const;
+    cardInstanceIds: ["guardian-direct-discard"]
+  };
   const result = handleCommand(state, command);
   const replay = handleCommand(structuredClone(state), command);
   assert.deepEqual(result, replay);
@@ -1455,7 +1579,7 @@ test("a guardian attack pauses for defense and resumes remaining automatic effec
     commandId: "start-guardian-attack",
     actorId,
     expectedRevision: state.revision,
-    cardInstanceId: "guardian-attack-discard"
+    cardInstanceIds: ["guardian-attack-discard"]
   });
   assert.equal(action.ok, true);
   if (!action.ok || action.state.pendingAction?.kind !== "ATTACK") return;
@@ -1541,7 +1665,7 @@ test("all queued guardians are checked before a guardian-caused match result", (
     commandId: "start-team-guardian-attack",
     actorId,
     expectedRevision: state.revision,
-    cardInstanceId: "team-discard"
+    cardInstanceIds: ["team-discard"]
   });
   assert.equal(action.ok, true);
   if (!action.ok || action.state.pendingAction?.kind !== "ATTACK") return;

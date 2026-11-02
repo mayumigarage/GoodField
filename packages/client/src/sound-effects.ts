@@ -13,7 +13,6 @@ export const SOUND_EFFECT_FILES = {
   counter: "counter.mp3",
   damage: "damage.mp3",
   dead: "dead.mp3",
-  defense: "defense_harm.mp3",
   disease: "disease.mp3",
   draw: "game_draw.mp3",
   exchange: "exchange.mp3",
@@ -109,9 +108,6 @@ export function soundEffectForEvent(
       return event.redirectType === "REFLECT" ? "reflect" : "counter";
     case "ATTACK_STOPPED":
       return "block";
-    case "REACTION_DECLARED":
-    case "DEFENSE_COMMITTED":
-      return "defense";
     case "DAMAGE_APPLIED":
       return event.amount > 0 ? "damage" : "noChange";
     case "REVIVAL_RESOLVED":

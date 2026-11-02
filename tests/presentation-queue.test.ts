@@ -52,6 +52,7 @@ test("current presentation profile matches the recorded 500/1000ms combat timing
     stageGapMs: 500,
     attackStageMs: 500,
     attackResultMs: 1_000,
+    hitResultMs: 750,
     resolutionHoldMs: 500,
     healingHoldMs: 1_000,
     exchangeHoldMs: 1_500,
@@ -63,6 +64,48 @@ test("current presentation profile matches the recorded 500/1000ms combat timing
     exitHoldMs: 500,
     localSelectionDelayMs: 0
   });
+});
+
+test("attack cards reveal one per stage like discards", () => {
+  const steps = presentationStepsForEvent(
+    event({
+      type: "ACTION_DECLARED",
+      eventSeq: 1,
+      playerId: "a",
+      actionType: "DECLARE_ACTION",
+      targetPlayerId: "b",
+      actionCardDefinitionIds: ["bronze-club", "fireball", "ice"]
+    })
+  );
+  assert.deepEqual(
+    steps.map(({ kind, stageIndex, durationMs }) => [kind, stageIndex, durationMs]),
+    [
+      ["ACTION", 0, 500],
+      ["ACTION", 1, 500],
+      ["ACTION", 2, 500]
+    ]
+  );
+});
+
+test("discard presentations reveal the discard card and then one card per stage", () => {
+  const steps = presentationStepsForEvent(
+    event({
+      type: "ACTION_DECLARED",
+      eventSeq: 1,
+      playerId: "a",
+      actionType: "DISCARD",
+      targetPlayerId: null,
+      actionCardDefinitionIds: ["leather-cap", "smile-dew"]
+    })
+  );
+  assert.deepEqual(
+    steps.map(({ kind, stageIndex, durationMs }) => [kind, stageIndex, durationMs]),
+    [
+      ["ACTION", 0, 500],
+      ["ACTION", 1, 500],
+      ["ACTION", 2, 500]
+    ]
+  );
 });
 
 test("healing and exchange presentations hold for 1,000ms", () => {
@@ -197,7 +240,7 @@ test("percentage attacks show their hit or miss result for 1,000ms", () => {
     );
     assert.deepEqual(
       result.map(({ kind, durationMs }) => [kind, durationMs]),
-      [["HIT_RESULT", 1_000]]
+      [["HIT_RESULT", 750]]
     );
   }
 
@@ -495,7 +538,7 @@ test("event-to-stage mapping keeps attack presentation order", () => {
   );
 });
 
-test("all committed defense cards and forgive use one 500ms stage", () => {
+test("committed defense cards reveal one per 500ms stage and forgive uses one stage", () => {
   const defended = presentationStepsForEvent(
     event({
       type: "REACTION_DECLARED",
@@ -524,7 +567,10 @@ test("all committed defense cards and forgive use one 500ms stage", () => {
       durationMs,
       stageIndex
     ]),
-    [["REACTION", 500, 0]]
+    [
+      ["REACTION", 500, 0],
+      ["REACTION", 500, 1]
+    ]
   );
   assert.deepEqual(
     forgiven.map(({ kind, durationMs }) => [kind, durationMs]),

@@ -485,6 +485,8 @@ export type DomainEvent =
       defenseCardDefinitionIds?: string[];
       defenseLearnedMiracleDefinitionIds?: string[];
       defensePower?: number;
+      // Per-source defense in display order: cards, then learned miracles.
+      defenseValues?: number[];
     })
   | (DomainEventBase & {
       type: "DEFENSE_COMMITTED";
@@ -619,11 +621,11 @@ export type GameCommand =
     })
   | (CommandBase & {
       type: "DISCARD";
-      cardInstanceId: string;
+      cardInstanceIds: string[];
     })
   | (CommandBase & {
       type: "SACRIFICE";
-      cardInstanceId: string;
+      cardInstanceIds: string[];
     })
   | (CommandBase & {
       type: "EXCHANGE_RESOURCES";

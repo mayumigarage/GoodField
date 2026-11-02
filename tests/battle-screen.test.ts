@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   adjustExchangeAllocation,
   BATTLE_SCREEN_STYLES,
+  mountBattleScreen,
   renderBattleScreen
 } from "../packages/client/src/battle-screen.ts";
 import {
@@ -16,8 +17,10 @@ import {
   selectActionCard,
   selectDefenseCard,
   prepareExchangeSubmission,
+  prepareHandActionSubmission,
   synchronizeUiState,
   toggleExchangeDraft,
+  toggleHandActionCard,
   toggleHandActionMode,
   updateExchangeDraft
 } from "../packages/client/src/ui-machine.ts";
@@ -727,7 +730,7 @@ test("pray uses the full action staging lane and exposes its hover surface", () 
   );
 });
 
-test("discard is a toggle that discards eligible hand cards without opening utility UI", () => {
+test("discard mode stacks several eligible hand cards and confirms them together", () => {
   const original = createMatch({
     matchId: "discard-toggle-screen",
     seed: "discard-toggle-screen-seed",
@@ -750,6 +753,11 @@ test("discard is a toggle that discards eligible hand cards without opening util
           {
             instanceId: "discardable-cap",
             cardDefinitionId: "leather-cap",
+            dreamDisguiseCardDefinitionId: null
+          },
+          {
+            instanceId: "discardable-dew",
+            cardDefinitionId: "smile-dew",
             dreamDisguiseCardDefinitionId: null
           },
           {
@@ -778,19 +786,82 @@ test("discard is a toggle that discards eligible hand cards without opening util
     activeHtml,
     /data-toggle-hand-action="DISCARD"[\s\S]*?aria-pressed="true"/u
   );
-  assert.match(
-    activeHtml,
-    /data-submit-hand-action="DISCARD" data-hand-action-card-instance="discardable-cap"/u
-  );
-  assert.doesNotMatch(
-    activeHtml,
-    /data-submit-hand-action="DISCARD" data-hand-action-card-instance="kept-weapon"/u
-  );
+  assert.match(activeHtml, /data-select-hand-action-card="discardable-cap"/u);
+  assert.match(activeHtml, /data-select-hand-action-card="discardable-dew"/u);
+  assert.doesNotMatch(activeHtml, /data-select-hand-action-card="kept-weapon"/u);
+  assert.match(activeHtml, /data-submit-pray\s+disabled/u);
+  assert.match(activeHtml, /data-card-definition-id="discard"/u);
+  assert.match(activeHtml, /data-submit-hand-action\s+disabled/u);
   const weaponButton = (
     activeHtml.match(/<button[\s\S]*?<\/button>/gu) ?? []
   ).find((button) => button.includes('data-select-card="kept-weapon"'));
   assert.ok(weaponButton);
   assert.match(weaponButton, /\sdisabled(?:\s|>)/u);
+
+  const ignored = toggleHandActionCard(active, "kept-weapon", view);
+  assert.deepEqual(ignored.selectedHandActionCardIds, []);
+  const both = toggleHandActionCard(
+    toggleHandActionCard(active, "discardable-cap", view),
+    "discardable-dew",
+    view
+  );
+  assert.deepEqual(both.selectedHandActionCardIds, [
+    "discardable-cap",
+    "discardable-dew"
+  ]);
+  const bothHtml = renderBattleScreen(view, both);
+  const stack = bothHtml.match(
+    /data-card-lane="action"[\s\S]*?data-card-lane="defense"/u
+  )?.[0];
+  assert.ok(stack);
+  assert.deepEqual(
+    [...stack.matchAll(/data-card-definition-id="([^"]+)"/gu)].map(
+      (match) => match[1]
+    ),
+    ["discard", "leather-cap", "smile-dew"]
+  );
+  assert.doesNotMatch(bothHtml, /data-submit-hand-action\s+disabled/u);
+
+  const deselected = toggleHandActionCard(both, "discardable-cap", view);
+  assert.deepEqual(deselected.selectedHandActionCardIds, ["discardable-dew"]);
+
+  const prepared = prepareHandActionSubmission(both, view, () => "discard-both");
+  assert.ok(prepared);
+  assert.deepEqual(prepared.command, {
+    type: "DISCARD",
+    matchId: view.matchId,
+    commandId: "discard-both",
+    actorId,
+    expectedRevision: view.revision,
+    cardInstanceIds: ["discardable-cap", "discardable-dew"]
+  });
+  assert.equal(prepareHandActionSubmission(active, view, () => "none"), null);
+
+  const discarded = handleCommand(state, prepared.command);
+  assert.equal(discarded.ok, true);
+  if (!discarded.ok) return;
+  const afterView = projectGameView(discarded.state, actorId);
+  const afterUi = synchronizeUiState(initialUiState(), afterView);
+  let presentation = enqueuePresentationEvents(
+    createPresentationQueue(),
+    discarded.events,
+    afterView,
+    0
+  );
+  const stackAt = (nowMs: number): (string | undefined)[] => {
+    presentation = advancePresentationClock(presentation, nowMs);
+    const html = renderBattleScreen(afterView, afterUi, {}, presentation, nowMs);
+    const lane = html.match(
+      /data-card-lane="action"[\s\S]*?data-card-lane="defense"/u
+    )?.[0];
+    assert.ok(lane);
+    return [...lane.matchAll(/data-card-definition-id="([^"]+)"/gu)].map(
+      (match) => match[1]
+    );
+  };
+  assert.deepEqual(stackAt(0), ["discard"]);
+  assert.deepEqual(stackAt(500), ["discard", "leather-cap"]);
+  assert.deepEqual(stackAt(1000), ["discard", "leather-cap", "smile-dew"]);
 });
 
 test("exchange card opens its utility UI and reallocates MP and money from HP", () => {
@@ -1176,7 +1247,7 @@ test("defender sees defense choices, total defense, forgive, and a fresh reactio
   assert.doesNotMatch(attackerHtml, /screen-defense/u);
 });
 
-test("self attacks match the recorded 500/1000ms combat sequence", () => {
+test("self attacks match the recorded 500/1000ms combat sequence with one defense card per stage", () => {
   const original = createMatch({
     matchId: "persistent-combat-lane",
     seed: "persistent-combat-lane-seed",
@@ -1297,15 +1368,36 @@ test("self attacks match the recorded 500/1000ms combat sequence", () => {
   assert.match(reactionHtml, /data-presentation-scene="attack"/u);
   assert.match(reactionHtml, /data-presentation-stage="REACTION"/u);
   assert.match(reactionHtml, /鎖ガマ/u);
-  assert.match(reactionHtml, /革の服/u);
-  assert.match(reactionHtml, /革の帽子/u);
-  assert.match(reactionHtml, /<span class="gf-action__arrow">➜<\/span>/u);
   assert.match(
     reactionHtml,
+    /data-card-lane="defense"[\s\S]*革の服/u
+  );
+  assert.doesNotMatch(
+    reactionHtml,
+    /data-card-lane="defense"[\s\S]*革の帽子/u
+  );
+  assert.match(reactionHtml, /<dt>合計防御<\/dt><dd>2<\/dd>/u);
+
+  const fullReactionPresentation = advancePresentationClock(
+    reactionPresentation,
+    1_500
+  );
+  const fullReactionHtml = renderBattleScreen(
+    view,
+    ui,
+    {},
+    fullReactionPresentation
+  );
+  assert.match(fullReactionHtml, /data-presentation-stage="REACTION"/u);
+  assert.match(fullReactionHtml, /革の服/u);
+  assert.match(fullReactionHtml, /革の帽子/u);
+  assert.match(reactionHtml, /<span class="gf-action__arrow">➜<\/span>/u);
+  assert.match(
+    fullReactionHtml,
     /data-card-lane="action"[\s\S]*鎖ガマ[\s\S]*data-card-lane="defense"[\s\S]*革の服[\s\S]*革の帽子/u
   );
-  assert.match(reactionHtml, /<dt>合計防御<\/dt><dd>3<\/dd>/u);
-  assert.doesNotMatch(reactionHtml, /data-region="presentation"/u);
+  assert.match(fullReactionHtml, /<dt>合計防御<\/dt><dd>3<\/dd>/u);
+  assert.doesNotMatch(fullReactionHtml, /data-region="presentation"/u);
 
   const defenderView = projectGameView(reaction.state, targetId);
   const defenderUi = synchronizeUiState(initialUiState(), defenderView);
@@ -1313,15 +1405,15 @@ test("self attacks match the recorded 500/1000ms combat sequence", () => {
     defenderView,
     defenderUi,
     {},
-    reactionPresentation
+    fullReactionPresentation
   );
   assert.match(defenderReactionHtml, /革の服/u);
   assert.match(defenderReactionHtml, /革の帽子/u);
   assert.match(defenderReactionHtml, /data-game-input-disabled="true"/u);
 
   const damagePresentation = advancePresentationClock(
-    reactionPresentation,
-    1_500
+    fullReactionPresentation,
+    2_000
   );
   const damageHtml = renderBattleScreen(view, ui, {}, damagePresentation);
   assert.match(damageHtml, /鎖ガマ/u);
@@ -1329,7 +1421,7 @@ test("self attacks match the recorded 500/1000ms combat sequence", () => {
   assert.match(damageHtml, /革の帽子/u);
   assert.match(damageHtml, /<span class="gf-action__arrow">➜<\/span>/u);
   assert.match(damageHtml, /data-result="damage"/u);
-  assert.match(damageHtml, /<strong>-2hp<\/strong>/u);
+  assert.match(damageHtml, /<strong>2<\/strong><span>ダメージ<\/span>/u);
   assert.match(
     damageHtml,
     new RegExp(
@@ -1372,7 +1464,7 @@ test("self attacks match the recorded 500/1000ms combat sequence", () => {
   assert.match(overlappingDamageHtml, /革の帽子/u);
   assert.match(
     overlappingDamageHtml,
-    /<strong>-2hp<\/strong>/u
+    /<strong>2<\/strong><span>ダメージ<\/span>/u
   );
   assert.doesNotMatch(overlappingDamageHtml, /神の剣/u);
   assert.doesNotMatch(overlappingDamageHtml, /<dd>50<\/dd>/u);
@@ -1385,13 +1477,13 @@ test("self attacks match the recorded 500/1000ms combat sequence", () => {
   assert.match(defenderDamageHtml, /革の服/u);
   assert.match(
     defenderDamageHtml,
-    /<strong>-2hp<\/strong>/u
+    /<strong>2<\/strong><span>ダメージ<\/span>/u
   );
   assert.match(defenderDamageHtml, /data-game-input-disabled="true"/u);
 
   const settledPresentation = advancePresentationClock(
     damagePresentation,
-    2_500
+    3_000
   );
   const settledHtml = renderBattleScreen(
     view,
@@ -1508,7 +1600,7 @@ test("attack UI accumulates through an additional outcome overlay before the tur
   assert.match(damageHtml, /ゴーストソード/u);
   assert.match(damageHtml, /<span class="gf-action__arrow">➜<\/span>/u);
   assert.match(damageHtml, />許す</u);
-  assert.match(damageHtml, /<strong>-7hp<\/strong>/u);
+  assert.match(damageHtml, /<strong>7<\/strong><span>ダメージ<\/span>/u);
   assert.match(
     damageHtml,
     new RegExp(
@@ -1534,8 +1626,8 @@ test("attack UI accumulates through an additional outcome overlay before the tur
     /<span class="gf-action__arrow">➜<\/span>/u
   );
   assert.match(absorptionHtml, />許す</u);
-  assert.match(absorptionHtml, /<strong>\+7hp<\/strong>/u);
-  assert.doesNotMatch(absorptionHtml, /<strong>-7hp<\/strong>/u);
+  assert.match(absorptionHtml, /<strong>HP7<\/strong>/u);
+  assert.doesNotMatch(absorptionHtml, /<strong>7<\/strong><span>ダメージ<\/span>/u);
   assert.match(
     absorptionHtml,
     new RegExp(
@@ -1604,7 +1696,7 @@ test("self recovery shows the used card and recovered HP or MP while input is lo
   assert.match(healingHtml, /スマイルのしずく/u);
   assert.match(healingHtml, /data-result="recovery"/u);
   assert.match(healingHtml, /data-polarity="positive"/u);
-  assert.match(healingHtml, /<strong>\+5hp<\/strong>/u);
+  assert.match(healingHtml, /<strong>HP5<\/strong>/u);
   assert.doesNotMatch(healingHtml, /<span>hp<\/span>/u);
   assert.match(
     BATTLE_SCREEN_STYLES,
@@ -1612,9 +1704,26 @@ test("self recovery shows the used card and recovered HP or MP while input is lo
   );
   assert.match(
     BATTLE_SCREEN_STYLES,
-    /\.gf-action__result\[data-polarity="positive"\]\s*\{[\s\S]*?color: #087a34;/u
+    /\.gf-action__result\[data-polarity="positive"\]\s*\{[\s\S]*?color: #ffffff;[\s\S]*?background: #1ddd7f;/u
   );
   assert.match(healingHtml, /data-game-input-disabled="true"/u);
+
+  const healingStartedAtMs = healingPresentation.activeStep?.startedAtMs ?? 0;
+  for (const elapsedMs of [0, 120, 640]) {
+    assert.match(
+      renderBattleScreen(
+        view,
+        ui,
+        {},
+        healingPresentation,
+        healingStartedAtMs + elapsedMs
+      ),
+      new RegExp(
+        `data-result="recovery"[\\s\\S]*?--gf-effect-delay: ${elapsedMs === 0 ? "0" : -elapsedMs}ms`,
+        "u"
+      )
+    );
+  }
 
   const settled = advancePresentationClock(healingPresentation, 1_500);
   const settledHtml = renderBattleScreen(view, ui, {}, settled);
@@ -1720,7 +1829,7 @@ test("forgive and calamity follow the recorded combat timing", () => {
   );
   assert.match(
     BATTLE_SCREEN_STYLES,
-    /\.gf-action__forgive\s*\{[\s\S]*?border: 5px solid #bb4444;[\s\S]*?color: #bb0000;[\s\S]*?background: #ffeeee;/u
+    /\.gf-action__forgive\s*\{[\s\S]*?color: #eeffee;[\s\S]*?background: #aa3344;/u
   );
 
   const damagePresentation = advancePresentationClock(
@@ -1729,12 +1838,11 @@ test("forgive and calamity follow the recorded combat timing", () => {
   );
   const damageHtml = renderBattleScreen(view, ui, {}, damagePresentation);
   assert.match(damageHtml, /data-polarity="negative"/u);
-  assert.match(damageHtml, /<strong>-5hp<\/strong>/u);
+  assert.match(damageHtml, /<strong>5<\/strong><span>ダメージ<\/span>/u);
   assert.match(
     damageHtml,
     /class="gf-action__forgive" data-polarity="negative"[^>]*>許す</u
   );
-  assert.doesNotMatch(damageHtml, />ダメージ</u);
 
   const calamityPresentation = advancePresentationClock(
     damagePresentation,
@@ -1819,7 +1927,7 @@ test("disease damage uses the target-side red HP delta overlay for 1,000ms", () 
     /data-card-lane="defense"[\s\S]*data-result="damage"[\s\S]*data-polarity="negative"/u
   );
   assert.match(html, /data-player-id="[^"]+"/u);
-  assert.match(html, /<strong>-2hp<\/strong>/u);
+  assert.match(html, /<strong>2<\/strong><span>ダメージ<\/span>/u);
   assert.doesNotMatch(html, /青銅のこん棒/u);
   assert.doesNotMatch(html, /data-region="presentation"/u);
   assert.equal(
@@ -2165,7 +2273,7 @@ test("another player's healing card shows for 500ms, then its recovery for 1,000
   assert.match(recoveryHtml, /data-presentation-stage="HP_UPDATE"/u);
   assert.match(recoveryHtml, /ハートのしずく/u);
   assert.match(recoveryHtml, /data-polarity="positive"/u);
-  assert.match(recoveryHtml, /<strong>\+10hp<\/strong>/u);
+  assert.match(recoveryHtml, /<strong>HP10<\/strong>/u);
   assert.doesNotMatch(recoveryHtml, /<span>hp<\/span>/u);
   assert.match(recoveryHtml, /data-game-input-disabled="true"/u);
 
@@ -2487,4 +2595,99 @@ test("a replacement card stays face-down until the battle presentation settles",
   assert.deepEqual(settled.concealedCardInstanceIds, []);
   assert.doesNotMatch(settledHtml, /data-card-concealed="true"/u);
   assert.match(settledHtml, /replacement-card-secret/u);
+});
+
+test("deadline re-renders resume a result overlay instead of replaying it", () => {
+  const state = createMatch({
+    matchId: "overlay-deadline-rerender",
+    seed: "overlay-deadline-rerender-seed",
+    players: [
+      { playerId: "healer", displayName: "Healer" },
+      { playerId: "other", displayName: "Other" }
+    ]
+  }).state;
+  const healerId = state.activePlayerId;
+  assert.ok(healerId);
+  const startMs = Date.parse("2026-07-27T00:00:00.000Z");
+  const view = {
+    ...projectGameView(state, healerId),
+    inputDeadlineAt: "2026-07-27T00:00:30.500Z"
+  };
+  let clockMs = startMs;
+  const renders: string[] = [];
+  const container = {
+    set innerHTML(html: string) {
+      renders.push(html);
+    },
+    querySelector: () => null,
+    querySelectorAll: () => [],
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined
+  } as unknown as HTMLElement;
+  const screen = mountBattleScreen(
+    container,
+    view,
+    synchronizeUiState(initialUiState(), view),
+    {},
+    { now: () => clockMs }
+  );
+  screen.applyRealtimeMessage(
+    {
+      type: "EVENT_BATCH",
+      matchId: state.matchId,
+      afterEventSeq: 0,
+      eventSeq: 1,
+      events: [
+        {
+          revision: 1,
+          occurredAt: "2026-07-27T00:00:00.000Z",
+          visibility: { scope: "PUBLIC" },
+          type: "RESOURCE_CHANGED",
+          eventSeq: 1,
+          playerId: healerId,
+          resource: "HP",
+          delta: 5,
+          valueAfter: 45,
+          reason: "CARD_EFFECT"
+        }
+      ],
+      snapshot: view
+    },
+    startMs
+  );
+  const rendersBeforeTick = renders.length;
+  clockMs = startMs + 600;
+  screen.tick(clockMs);
+  screen.dispose();
+
+  const overlayRenders = renders
+    .slice(rendersBeforeTick)
+    .filter((html) => /data-result="recovery"/u.test(html));
+  assert.equal(overlayRenders.length, 1);
+  assert.match(
+    overlayRenders.at(-1) ?? "",
+    /data-result="recovery"[\s\S]*?--gf-effect-delay: -\d+ms/u
+  );
+});
+
+test("hidden brawl header shows its mode label and an exit action", () => {
+  const { state } = createMatch({
+    matchId: "hidden-header",
+    seed: "hidden-header-seed",
+    mode: "ONLINE",
+    players: [
+      { playerId: "a", displayName: "Alice" },
+      { playerId: "b", displayName: "Bob" }
+    ]
+  });
+  const view = projectGameView(state, null);
+  const ui = synchronizeUiState(initialUiState(), view);
+  const html = renderBattleScreen(view, ui, {
+    modeLabel: "隠れ乱闘",
+    exitAction: true
+  });
+
+  assert.match(html, /gf-header__mode">隠れ乱闘</u);
+  assert.match(html, /data-exit-battle/u);
+  assert.doesNotMatch(renderBattleScreen(view, ui), /data-exit-battle/u);
 });

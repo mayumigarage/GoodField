@@ -10,6 +10,7 @@ export type PresentationTimingProfile = {
   stageGapMs: number;
   attackStageMs: number;
   attackResultMs: number;
+  hitResultMs: number;
   resolutionHoldMs: number;
   healingHoldMs: number;
   exchangeHoldMs: number;
@@ -28,6 +29,7 @@ export const OFFICIAL_WEB_2026_07_25: PresentationTimingProfile = {
   stageGapMs: 500,
   attackStageMs: 500,
   attackResultMs: 1_000,
+  hitResultMs: 1_000,
   resolutionHoldMs: 1_000,
   healingHoldMs: 1_000,
   exchangeHoldMs: 1_000,
@@ -46,6 +48,7 @@ export const OFFICIAL_WEB_2026_07_26: PresentationTimingProfile = {
   stageGapMs: 500,
   attackStageMs: 500,
   attackResultMs: 1_000,
+  hitResultMs: 750,
   resolutionHoldMs: 500,
   healingHoldMs: 1_000,
   exchangeHoldMs: 1_500,
@@ -171,6 +174,19 @@ function isBuyTrade(
   );
 }
 
+// Multi-card stacks reveal one card per stage, so each card joins the stack
+// on its own beat instead of the whole stack appearing at once.
+function stagedCardReveal(
+  cardCount: number,
+  durationMs: number,
+  kind: "ACTION" | "REACTION" = "ACTION"
+): StepDefinition[] {
+  return Array.from({ length: Math.max(1, cardCount) }, () => ({
+    kind,
+    durationMs
+  }));
+}
+
 function definitionsForEvent(
   event: DomainEvent,
   profile: PresentationTimingProfile,
@@ -188,30 +204,37 @@ function definitionsForEvent(
           { kind: "ACTION", durationMs: profile.saleRouteMs }
         ];
       }
-      return [
-        {
-          kind: "ACTION",
-          durationMs:
-            event.actionType === "DECLARE_ACTION"
-              ? profile.attackStageMs
-              : profile.stageGapMs
-        }
-      ];
+      if (event.actionType === "DISCARD" || event.actionType === "SACRIFICE") {
+        // The discard card appears first, then each removed card joins the
+        // stack one stage at a time.
+        return stagedCardReveal(
+          (event.actionCardDefinitionIds?.length ?? 0) + 1,
+          profile.stageGapMs
+        );
+      }
+      if (event.actionType === "DECLARE_ACTION") {
+        return stagedCardReveal(
+          event.actionCardDefinitionIds?.length ?? 0,
+          profile.attackStageMs
+        );
+      }
+      return [{ kind: "ACTION", durationMs: profile.stageGapMs }];
     case "ATTACK_CREATED":
     case "ATTACK_REDIRECTED":
       return [{ kind: "TARGET", durationMs: profile.attackStageMs }];
     case "HIT_ROLLED":
       return event.hitRate < 100
-        ? [{ kind: "HIT_RESULT", durationMs: profile.attackResultMs }]
+        ? [{ kind: "HIT_RESULT", durationMs: profile.hitResultMs }]
         : [];
     case "REACTION_REQUESTED":
       return [];
-    case "REACTION_DECLARED": {
-      return [{
-        kind: "REACTION",
-        durationMs: profile.attackStageMs
-      }];
-    }
+    case "REACTION_DECLARED":
+      return stagedCardReveal(
+        (event.defenseCardDefinitionIds?.length ?? 0) +
+          (event.defenseLearnedMiracleDefinitionIds?.length ?? 0),
+        profile.attackStageMs,
+        "REACTION"
+      );
     case "DAMAGE_APPLIED":
       return [
         {

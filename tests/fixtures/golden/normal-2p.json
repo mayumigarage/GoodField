@@ -31,7 +31,9 @@
       "expectedRevision": 41,
       "occurredAt": "2026-07-26T00:00:00.000Z",
       "type": "DISCARD",
-      "cardInstanceId": "golden-normal-2p:card:25"
+      "cardInstanceIds": [
+        "golden-normal-2p:card:25"
+      ]
     },
     {
       "matchId": "golden-normal-2p",
@@ -40,7 +42,9 @@
       "expectedRevision": 49,
       "occurredAt": "2026-07-26T00:00:00.000Z",
       "type": "DISCARD",
-      "cardInstanceId": "golden-normal-2p:card:19"
+      "cardInstanceIds": [
+        "golden-normal-2p:card:19"
+      ]
     },
     {
       "matchId": "golden-normal-2p",
@@ -507,7 +511,9 @@
       "expectedRevision": 373,
       "occurredAt": "2026-07-26T00:00:00.000Z",
       "type": "DISCARD",
-      "cardInstanceId": "golden-normal-2p:card:367"
+      "cardInstanceIds": [
+        "golden-normal-2p:card:367"
+      ]
     },
     {
       "matchId": "golden-normal-2p",
@@ -529,7 +535,9 @@
       "expectedRevision": 393,
       "occurredAt": "2026-07-26T00:00:00.000Z",
       "type": "DISCARD",
-      "cardInstanceId": "golden-normal-2p:card:279"
+      "cardInstanceIds": [
+        "golden-normal-2p:card:279"
+      ]
     },
     {
       "matchId": "golden-normal-2p",
@@ -2037,6 +2045,9 @@
       ],
       "defenseLearnedMiracleDefinitionIds": [],
       "defensePower": 30,
+      "defenseValues": [
+        30
+      ],
       "eventSeq": 63,
       "revision": 63,
       "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -2295,6 +2306,9 @@
       ],
       "defenseLearnedMiracleDefinitionIds": [],
       "defensePower": 8,
+      "defenseValues": [
+        8
+      ],
       "eventSeq": 81,
       "revision": 81,
       "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -2677,6 +2691,7 @@
       "defenseCardDefinitionIds": [],
       "defenseLearnedMiracleDefinitionIds": [],
       "defensePower": 0,
+      "defenseValues": [],
       "eventSeq": 109,
       "revision": 109,
       "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -2929,6 +2944,9 @@
       ],
       "defenseLearnedMiracleDefinitionIds": [],
       "defensePower": 5,
+      "defenseValues": [
+        5
+      ],
       "eventSeq": 126,
       "revision": 126,
       "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -3320,6 +3338,9 @@
       ],
       "defenseLearnedMiracleDefinitionIds": [],
       "defensePower": 1,
+      "defenseValues": [
+        1
+      ],
       "eventSeq": 155,
       "revision": 155,
       "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -3566,6 +3587,7 @@
       "defenseCardDefinitionIds": [],
       "defenseLearnedMiracleDefinitionIds": [],
       "defensePower": 0,
+      "defenseValues": [],
       "eventSeq": 172,
       "revision": 172,
       "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -3835,6 +3857,9 @@
       ],
       "defenseLearnedMiracleDefinitionIds": [],
       "defensePower": 5,
+      "defenseValues": [
+        5
+      ],
       "eventSeq": 190,
       "revision": 190,
       "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -4228,6 +4253,9 @@
       ],
       "defenseLearnedMiracleDefinitionIds": [],
       "defensePower": 3,
+      "defenseValues": [
+        3
+      ],
       "eventSeq": 219,
       "revision": 219,
       "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -4486,6 +4514,9 @@
       ],
       "defenseLearnedMiracleDefinitionIds": [],
       "defensePower": 5,
+      "defenseValues": [
+        5
+      ],
       "eventSeq": 237,
       "revision": 237,
       "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -4744,6 +4775,9 @@
       ],
       "defenseLearnedMiracleDefinitionIds": [],
       "defensePower": 0,
+      "defenseValues": [
+        0
+      ],
       "eventSeq": 255,
       "revision": 255,
       "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -5001,6 +5035,7 @@
       "defenseCardDefinitionIds": [],
       "defenseLearnedMiracleDefinitionIds": [],
       "defensePower": 0,
+      "defenseValues": [],
       "eventSeq": 273,
       "revision": 273,
       "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -5270,6 +5305,9 @@
       ],
       "defenseLearnedMiracleDefinitionIds": [],
       "defensePower": 5,
+      "defenseValues": [
+        5
+      ],
       "eventSeq": 291,
       "revision": 291,
       "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -5542,6 +5580,9 @@
       ],
       "defenseLearnedMiracleDefinitionIds": [],
       "defensePower": 4,
+      "defenseValues": [
+        4
+      ],
       "eventSeq": 310,
       "revision": 310,
       "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -5796,6 +5837,7 @@
       "defenseCardDefinitionIds": [],
       "defenseLearnedMiracleDefinitionIds": [],
       "defensePower": 0,
+      "defenseValues": [],
       "eventSeq": 328,
       "revision": 328,
       "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -6012,6 +6054,9 @@
       ],
       "defenseLearnedMiracleDefinitionIds": [],
       "defensePower": 6,
+      "defenseValues": [
+        6
+      ],
       "eventSeq": 343,
       "revision": 343,
       "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -6270,6 +6315,9 @@
       ],
       "defenseLearnedMiracleDefinitionIds": [],
       "defensePower": 2,
+      "defenseValues": [
+        2
+      ],
       "eventSeq": 361,
       "revision": 361,
       "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -6870,6 +6918,7 @@
       "defenseCardDefinitionIds": [],
       "defenseLearnedMiracleDefinitionIds": [],
       "defensePower": 0,
+      "defenseValues": [],
       "eventSeq": 407,
       "revision": 407,
       "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -7138,6 +7187,7 @@
       "defenseCardDefinitionIds": [],
       "defenseLearnedMiracleDefinitionIds": [],
       "defensePower": 0,
+      "defenseValues": [],
       "eventSeq": 426,
       "revision": 426,
       "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -7395,6 +7445,7 @@
       "defenseCardDefinitionIds": [],
       "defenseLearnedMiracleDefinitionIds": [],
       "defensePower": 0,
+      "defenseValues": [],
       "eventSeq": 443,
       "revision": 443,
       "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -7660,6 +7711,7 @@
       "defenseCardDefinitionIds": [],
       "defenseLearnedMiracleDefinitionIds": [],
       "defensePower": 0,
+      "defenseValues": [],
       "eventSeq": 461,
       "revision": 461,
       "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -7876,6 +7928,9 @@
       ],
       "defenseLearnedMiracleDefinitionIds": [],
       "defensePower": 1,
+      "defenseValues": [
+        1
+      ],
       "eventSeq": 476,
       "revision": 476,
       "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -8627,7 +8682,7 @@
     "inputDeadlineAt": null,
     "processedCommands": {
       "cpu:player-2:41": {
-        "commandFingerprint": "{\"actorId\":\"player-2\",\"cardInstanceId\":\"golden-normal-2p:card:25\",\"commandId\":\"cpu:player-2:41\",\"expectedRevision\":41,\"matchId\":\"golden-normal-2p\",\"occurredAt\":\"2026-07-26T00:00:00.000Z\",\"type\":\"DISCARD\"}",
+        "commandFingerprint": "{\"actorId\":\"player-2\",\"cardInstanceIds\":[\"golden-normal-2p:card:25\"],\"commandId\":\"cpu:player-2:41\",\"expectedRevision\":41,\"matchId\":\"golden-normal-2p\",\"occurredAt\":\"2026-07-26T00:00:00.000Z\",\"type\":\"DISCARD\"}",
         "revision": 49,
         "eventSequence": 49,
         "events": [
@@ -8722,7 +8777,7 @@
         ]
       },
       "cpu:player-1:49": {
-        "commandFingerprint": "{\"actorId\":\"player-1\",\"cardInstanceId\":\"golden-normal-2p:card:19\",\"commandId\":\"cpu:player-1:49\",\"expectedRevision\":49,\"matchId\":\"golden-normal-2p\",\"occurredAt\":\"2026-07-26T00:00:00.000Z\",\"type\":\"DISCARD\"}",
+        "commandFingerprint": "{\"actorId\":\"player-1\",\"cardInstanceIds\":[\"golden-normal-2p:card:19\"],\"commandId\":\"cpu:player-1:49\",\"expectedRevision\":49,\"matchId\":\"golden-normal-2p\",\"occurredAt\":\"2026-07-26T00:00:00.000Z\",\"type\":\"DISCARD\"}",
         "revision": 57,
         "eventSequence": 57,
         "events": [
@@ -8931,6 +8986,9 @@
             ],
             "defenseLearnedMiracleDefinitionIds": [],
             "defensePower": 30,
+            "defenseValues": [
+              30
+            ],
             "eventSeq": 63,
             "revision": 63,
             "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -9203,6 +9261,9 @@
             ],
             "defenseLearnedMiracleDefinitionIds": [],
             "defensePower": 8,
+            "defenseValues": [
+              8
+            ],
             "eventSeq": 81,
             "revision": 81,
             "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -9606,6 +9667,7 @@
             "defenseCardDefinitionIds": [],
             "defenseLearnedMiracleDefinitionIds": [],
             "defensePower": 0,
+            "defenseValues": [],
             "eventSeq": 109,
             "revision": 109,
             "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -9872,6 +9934,9 @@
             ],
             "defenseLearnedMiracleDefinitionIds": [],
             "defensePower": 5,
+            "defenseValues": [
+              5
+            ],
             "eventSeq": 126,
             "revision": 126,
             "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -10284,6 +10349,9 @@
             ],
             "defenseLearnedMiracleDefinitionIds": [],
             "defensePower": 1,
+            "defenseValues": [
+              1
+            ],
             "eventSeq": 155,
             "revision": 155,
             "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -10544,6 +10612,7 @@
             "defenseCardDefinitionIds": [],
             "defenseLearnedMiracleDefinitionIds": [],
             "defensePower": 0,
+            "defenseValues": [],
             "eventSeq": 172,
             "revision": 172,
             "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -10834,6 +10903,9 @@
             ],
             "defenseLearnedMiracleDefinitionIds": [],
             "defensePower": 5,
+            "defenseValues": [
+              5
+            ],
             "eventSeq": 190,
             "revision": 190,
             "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -11248,6 +11320,9 @@
             ],
             "defenseLearnedMiracleDefinitionIds": [],
             "defensePower": 3,
+            "defenseValues": [
+              3
+            ],
             "eventSeq": 219,
             "revision": 219,
             "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -11520,6 +11595,9 @@
             ],
             "defenseLearnedMiracleDefinitionIds": [],
             "defensePower": 5,
+            "defenseValues": [
+              5
+            ],
             "eventSeq": 237,
             "revision": 237,
             "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -11792,6 +11870,9 @@
             ],
             "defenseLearnedMiracleDefinitionIds": [],
             "defensePower": 0,
+            "defenseValues": [
+              0
+            ],
             "eventSeq": 255,
             "revision": 255,
             "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -12063,6 +12144,7 @@
             "defenseCardDefinitionIds": [],
             "defenseLearnedMiracleDefinitionIds": [],
             "defensePower": 0,
+            "defenseValues": [],
             "eventSeq": 273,
             "revision": 273,
             "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -12353,6 +12435,9 @@
             ],
             "defenseLearnedMiracleDefinitionIds": [],
             "defensePower": 5,
+            "defenseValues": [
+              5
+            ],
             "eventSeq": 291,
             "revision": 291,
             "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -12639,6 +12724,9 @@
             ],
             "defenseLearnedMiracleDefinitionIds": [],
             "defensePower": 4,
+            "defenseValues": [
+              4
+            ],
             "eventSeq": 310,
             "revision": 310,
             "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -12907,6 +12995,7 @@
             "defenseCardDefinitionIds": [],
             "defenseLearnedMiracleDefinitionIds": [],
             "defensePower": 0,
+            "defenseValues": [],
             "eventSeq": 328,
             "revision": 328,
             "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -13137,6 +13226,9 @@
             ],
             "defenseLearnedMiracleDefinitionIds": [],
             "defensePower": 6,
+            "defenseValues": [
+              6
+            ],
             "eventSeq": 343,
             "revision": 343,
             "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -13409,6 +13501,9 @@
             ],
             "defenseLearnedMiracleDefinitionIds": [],
             "defensePower": 2,
+            "defenseValues": [
+              2
+            ],
             "eventSeq": 361,
             "revision": 361,
             "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -13567,7 +13662,7 @@
         ]
       },
       "cpu:player-1:373": {
-        "commandFingerprint": "{\"actorId\":\"player-1\",\"cardInstanceId\":\"golden-normal-2p:card:367\",\"commandId\":\"cpu:player-1:373\",\"expectedRevision\":373,\"matchId\":\"golden-normal-2p\",\"occurredAt\":\"2026-07-26T00:00:00.000Z\",\"type\":\"DISCARD\"}",
+        "commandFingerprint": "{\"actorId\":\"player-1\",\"cardInstanceIds\":[\"golden-normal-2p:card:367\"],\"commandId\":\"cpu:player-1:373\",\"expectedRevision\":373,\"matchId\":\"golden-normal-2p\",\"occurredAt\":\"2026-07-26T00:00:00.000Z\",\"type\":\"DISCARD\"}",
         "revision": 381,
         "eventSequence": 381,
         "events": [
@@ -13839,7 +13934,7 @@
         ]
       },
       "cpu:player-1:393": {
-        "commandFingerprint": "{\"actorId\":\"player-1\",\"cardInstanceId\":\"golden-normal-2p:card:279\",\"commandId\":\"cpu:player-1:393\",\"expectedRevision\":393,\"matchId\":\"golden-normal-2p\",\"occurredAt\":\"2026-07-26T00:00:00.000Z\",\"type\":\"DISCARD\"}",
+        "commandFingerprint": "{\"actorId\":\"player-1\",\"cardInstanceIds\":[\"golden-normal-2p:card:279\"],\"commandId\":\"cpu:player-1:393\",\"expectedRevision\":393,\"matchId\":\"golden-normal-2p\",\"occurredAt\":\"2026-07-26T00:00:00.000Z\",\"type\":\"DISCARD\"}",
         "revision": 401,
         "eventSequence": 401,
         "events": [
@@ -14044,6 +14139,7 @@
             "defenseCardDefinitionIds": [],
             "defenseLearnedMiracleDefinitionIds": [],
             "defensePower": 0,
+            "defenseValues": [],
             "eventSeq": 407,
             "revision": 407,
             "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -14326,6 +14422,7 @@
             "defenseCardDefinitionIds": [],
             "defenseLearnedMiracleDefinitionIds": [],
             "defensePower": 0,
+            "defenseValues": [],
             "eventSeq": 426,
             "revision": 426,
             "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -14604,6 +14701,7 @@
             "defenseCardDefinitionIds": [],
             "defenseLearnedMiracleDefinitionIds": [],
             "defensePower": 0,
+            "defenseValues": [],
             "eventSeq": 443,
             "revision": 443,
             "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -14890,6 +14988,7 @@
             "defenseCardDefinitionIds": [],
             "defenseLearnedMiracleDefinitionIds": [],
             "defensePower": 0,
+            "defenseValues": [],
             "eventSeq": 461,
             "revision": 461,
             "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -15120,6 +15219,9 @@
             ],
             "defenseLearnedMiracleDefinitionIds": [],
             "defensePower": 1,
+            "defenseValues": [
+              1
+            ],
             "eventSeq": 476,
             "revision": 476,
             "occurredAt": "2026-07-26T00:00:00.000Z",

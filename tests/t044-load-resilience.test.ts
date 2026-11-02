@@ -124,7 +124,7 @@ test("T-044 repeatedly resolves deterministic end-time demon chains", () => {
         commandId: `stress-demon-${index}`,
         actorId,
         expectedRevision: state.revision,
-        cardInstanceId: sacrifice.instanceId
+        cardInstanceIds: [sacrifice.instanceId]
       });
       assert.equal(result.ok, true);
       if (!result.ok) continue;

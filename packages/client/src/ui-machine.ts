@@ -39,6 +39,7 @@ export type TradeDraft = {
 export type UiInteractionState = {
   mode: UiMode;
   handActionMode: "DISCARD" | "SACRIFICE" | null;
+  selectedHandActionCardIds: string[];
   exchangeDraft: ExchangeDraft | null;
   tradeDraft: TradeDraft | null;
   selectedActionCardIds: string[];
@@ -108,6 +109,7 @@ export function initialUiState(): UiInteractionState {
   return {
     mode: "MATCH_SETUP",
     handActionMode: null,
+    selectedHandActionCardIds: [],
     exchangeDraft: null,
     tradeDraft: null,
     selectedActionCardIds: [],
@@ -329,6 +331,10 @@ export function synchronizeUiState(
       mode === "COMPOSING_ACTION" && !revisionChanged
         ? current.handActionMode
         : null,
+    selectedHandActionCardIds:
+      mode === "COMPOSING_ACTION" && !revisionChanged
+        ? current.selectedHandActionCardIds
+        : [],
     exchangeDraft:
       mode === "COMPOSING_ACTION" && !revisionChanged
         ? current.exchangeDraft
@@ -516,12 +522,51 @@ export function toggleHandActionMode(
   return {
     ...current,
     handActionMode: current.handActionMode === action ? null : action,
+    selectedHandActionCardIds: [],
     exchangeDraft: null,
     tradeDraft: null,
     selectedActionCardIds: [],
     selectedLearnedMiracleIds: [],
     selectedTargetIds: [],
     selectionInvalidReason: null
+  };
+}
+
+function handActionFor(
+  view: GameViewState,
+  type: "DISCARD" | "SACRIFICE" | null
+): Extract<
+  NonNullable<GameViewState["self"]>["legalActions"][number],
+  { type: "DISCARD" | "SACRIFICE" }
+> | null {
+  const action = view.self?.legalActions.find(
+    (candidate) => candidate.type === type
+  );
+  return action?.type === "DISCARD" || action?.type === "SACRIFICE"
+    ? action
+    : null;
+}
+
+export function toggleHandActionCard(
+  current: UiInteractionState,
+  cardInstanceId: string,
+  view: GameViewState
+): UiInteractionState {
+  const action = handActionFor(view, current.handActionMode);
+  if (
+    current.interactionLocked ||
+    current.inputDeadlineExpired ||
+    current.mode !== "COMPOSING_ACTION" ||
+    !action?.cardInstanceIds.includes(cardInstanceId)
+  ) {
+    return current;
+  }
+  const selected = current.selectedHandActionCardIds.includes(cardInstanceId);
+  return {
+    ...current,
+    selectedHandActionCardIds: selected
+      ? current.selectedHandActionCardIds.filter((id) => id !== cardInstanceId)
+      : [...current.selectedHandActionCardIds, cardInstanceId]
   };
 }
 
@@ -576,6 +621,7 @@ export function toggleTradeDraft(
   return {
     ...clearSelectedAction(current),
     handActionMode: null,
+    selectedHandActionCardIds: [],
     exchangeDraft: null,
     tradeDraft: draft,
     selectedTargetIds: targetPlayerId ? [targetPlayerId] : [],
@@ -708,6 +754,7 @@ export function toggleExchangeDraft(
   return {
     ...clearSelectedAction(current),
     handActionMode: null,
+    selectedHandActionCardIds: [],
     exchangeDraft: {
       cardInstanceId,
       hp: player.hp,
@@ -1327,6 +1374,39 @@ export function prepareExchangeSubmission(
       hp: draft.hp,
       mp: draft.mp,
       money: draft.money
+    }
+  };
+}
+
+export function prepareHandActionSubmission(
+  current: UiInteractionState,
+  view: GameViewState,
+  createCommandId: () => string
+): PreparedCommand | null {
+  const actorId = view.self?.playerId;
+  const action = handActionFor(view, current.handActionMode);
+  const cardInstanceIds = current.selectedHandActionCardIds;
+  if (
+    !actorId ||
+    !action ||
+    cardInstanceIds.length === 0 ||
+    !cardInstanceIds.every((id) => action.cardInstanceIds.includes(id)) ||
+    current.mode !== "COMPOSING_ACTION" ||
+    current.interactionLocked ||
+    current.inputDeadlineExpired
+  ) {
+    return null;
+  }
+  const commandId = current.awaitingCommandId ?? createCommandId();
+  return {
+    ui: lockForCommand(current, commandId),
+    command: {
+      type: action.type,
+      matchId: view.matchId,
+      commandId,
+      actorId,
+      expectedRevision: view.revision,
+      cardInstanceIds: [...cardInstanceIds]
     }
   };
 }

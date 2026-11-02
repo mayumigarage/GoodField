@@ -40,6 +40,7 @@ import {
   isHumanInputMode,
   learnedMiracleStatus,
   lockForCommand,
+  prepareHandActionSubmission,
   prepareBuyConfirmation,
   prepareDeclareActionSubmission,
   prepareExchangeSubmission,
@@ -56,6 +57,7 @@ import {
   toggleExchangeDraft,
   toggleTradeDraft,
   toggleTradeProduct,
+  toggleHandActionCard,
   toggleHandActionMode,
   updateExchangeDraft,
   synchronizeUiState,
@@ -75,6 +77,8 @@ export type BattleScreenLinks = {
   backHref?: string;
   rulebookHref?: string;
   exitHref?: string;
+  modeLabel?: string;
+  exitAction?: boolean;
 };
 
 const CALAMITY_LABELS: Readonly<Record<Calamity, string>> = {
@@ -366,6 +370,9 @@ function renderCard(
     tradeAction.productCardInstanceIds.includes(card.instanceId);
   const tradeSelected =
     isTradeCard || tradeDraft?.productCardInstanceId === card.instanceId;
+  const handActionSelected =
+    handActionType !== null &&
+    ui.selectedHandActionCardIds.includes(card.instanceId);
   const selectable = tradeDraft
     ? isTradeCard || isTradeProductCandidate
     : selectingHandAction
@@ -381,7 +388,7 @@ function renderCard(
   const selectionAttribute = isTradeProductCandidate
     ? `data-select-trade-product="${escapeHtml(card.instanceId)}"`
     : handActionType
-    ? `data-submit-hand-action="${handActionType}" data-hand-action-card-instance="${escapeHtml(card.instanceId)}"`
+    ? `data-select-hand-action-card="${escapeHtml(card.instanceId)}"`
     : utilityActionType
       ? `data-open-utility="${utilityActionType}" data-utility-card-instance="${escapeHtml(card.instanceId)}"`
     : composingReaction
@@ -393,7 +400,7 @@ function renderCard(
   return `
     <li
       class="gf-card"
-      data-selected="${String(status.selected || tradeSelected)}"
+      data-selected="${String(status.selected || tradeSelected || handActionSelected)}"
       data-card-category="${definition?.category ?? "GOODS"}"
       data-card-element="${definition?.element ?? "PHYSICAL"}"
     >
@@ -401,7 +408,7 @@ function renderCard(
         type="button"
         class="gf-card__button"
         ${selectionAttribute}
-        aria-pressed="${String(status.selected || exchangeOpen || tradeSelected)}"
+        aria-pressed="${String(status.selected || exchangeOpen || tradeSelected || handActionSelected)}"
         ${selectable ? "" : "disabled"}
         ${handActionType ? `title="${handActionType === "DISCARD" ? "この神器を捨てる" : "この神器をささげる"}"` : utilityActionType ? 'title="専用画面を開く"' : invalidReason ? `title="${escapeHtml(invalidReason)}"` : ""}
       >
@@ -519,6 +526,7 @@ function renderFieldCard(
   return `
     <article
       class="gf-field-card${modifier ? ` ${modifier}` : ""}"
+      data-card-definition-id="${escapeHtml(cardDefinitionId)}"
       data-card-category="${category}"
       data-card-element="${definition?.element ?? "PHYSICAL"}"
     >
@@ -679,7 +687,13 @@ function latestRecentCardUseScene(
       activityPlayerId: cardUse.playerId,
       targetPlayerId: cardUse.targetPlayerId,
       activityLabel: actionActivityLabel(cardUse.actionType),
-      actionCardDefinitionIds: [...(cardUse.actionCardDefinitionIds ?? [])],
+      actionCardDefinitionIds: [
+        ...(cardUse.actionType === "DISCARD" ||
+        cardUse.actionType === "SACRIFICE"
+          ? [handActionCardDefinitionId(cardUse.actionType)]
+          : []),
+        ...(cardUse.actionCardDefinitionIds ?? [])
+      ],
       defenseCardDefinitionIds: [],
       defensePower: null,
       attack: null,
@@ -1170,6 +1184,23 @@ function renderTradeSwap(
     </div>`;
 }
 
+function presentationEffectDelayStyle(
+  presentation: PresentationQueueState | null,
+  nowMs: number
+): string {
+  const startedAtMs = presentation?.activeStep?.startedAtMs ?? nowMs;
+  return `--gf-effect-delay: ${-Math.max(0, nowMs - startedAtMs)}ms`;
+}
+
+function renderResourceEffectLabel(effect: ResourceChangedEvent): string {
+  if (effect.delta > 0) {
+    return `<strong>${effect.resource}${effect.delta}</strong>`;
+  }
+  return effect.resource === "HP"
+    ? `<strong>${-effect.delta}</strong><span>ダメージ</span>`
+    : `<strong>${effect.delta}${effect.resource.toLowerCase()}</strong>`;
+}
+
 function isTradeAttack(sourceCardDefinitionIds: readonly string[]): boolean {
   return sourceCardDefinitionIds.some(
     (cardDefinitionId) =>
@@ -1219,6 +1250,7 @@ function renderActionRegion(
   const exchangeDraft = activeExchangeDraft(view, ui);
   const showsExchange = exchangeScene !== null || exchangeDraft !== null;
   const tradeDraft = activeTradeDraft(view, ui);
+  const handActionDraft = activeHandActionDraft(view, ui);
   const tradeScene = presentationTrade(presentation, nowMs);
   const offeredTrade =
     ui.mode === "CONFIRMING_TRADE"
@@ -1238,7 +1270,8 @@ function renderActionRegion(
     resourceEffectUsesRecentCard &&
     (!pendingAttack || activePresentationKind === "ACTION") &&
     ui.selectedActionCardIds.length === 0 &&
-    ui.selectedLearnedMiracleIds.length === 0
+    ui.selectedLearnedMiracleIds.length === 0 &&
+    ui.handActionMode === null
       ? latestRecentCardUseScene(presentation)
       : null;
   const recentCardUse = recentCardUseCandidate;
@@ -1274,18 +1307,23 @@ function renderActionRegion(
           ? [guardianAction.actionCardDefinitionId]
           : recentCardUse
             ? [...recentCardUse.actionCardDefinitionIds]
-            : exchangeDraft
+            : handActionDraft
+              ? handActionDefinitionIds(view, ui, handActionDraft)
+              : exchangeDraft
               ? exchangeCardDefinitionIds(view, exchangeDraft)
               : tradeDraft
                 ? tradeDraftDefinitionIds(view, tradeDraft)
                 : selectedActionDefinitionIds(view, ui);
-  const actionCardDefinitionIds =
+  const actionCardDefinitionIds = revealStagedCards(
     tradeScene?.kind === "BUY" && tradeScene.stage !== "OFFER"
       ? []
       : saleProductDefinitionId !== null &&
           presentedCardDefinitionIds.includes("sell")
         ? [...presentedCardDefinitionIds, saleProductDefinitionId]
-        : presentedCardDefinitionIds;
+        : presentedCardDefinitionIds,
+    presentation,
+    "ACTION_DECLARED"
+  );
   const preview = actionPreview(ui, view);
   const canPray =
     !ui.interactionLocked &&
@@ -1294,6 +1332,7 @@ function renderActionRegion(
     ui.selectedLearnedMiracleIds.length === 0 &&
     exchangeDraft === null &&
     tradeDraft === null &&
+    handActionDraft === null &&
     (view.self?.legalActions.some(({ type }) => type === "PRAY") ?? false);
   const reaction = reactionPreview(ui, view);
   const allDefenseDefinitionIds = locksPresentedAttack
@@ -1325,7 +1364,11 @@ function renderActionRegion(
   const selectedDefenseDefinitionIds =
     presentedAttack?.stageKind === "TARGET"
       ? []
-      : allDefenseDefinitionIds;
+      : revealStagedCards(
+          allDefenseDefinitionIds,
+          presentation,
+          "REACTION_DECLARED"
+        );
   const showForgive =
     presentedAttack !== null &&
     ["REACTION", "DAMAGE_RESULT", "HP_UPDATE", "CALAMITY"].includes(
@@ -1342,14 +1385,16 @@ function renderActionRegion(
     recentCardUse?.attack?.power ??
     pendingAttack?.power ??
     preview.attackPower;
-  const defensePower =
+  const defensePower = revealStagedDefensePower(
     locksPresentedAttack
       ? presentedAttack.reaction?.defensePower ?? null
       : ui.mode === "COMPOSING_REACTION"
       ? reaction.totalDefense
       : presentedAttack?.reaction?.defensePower ??
         recentCardUse?.defensePower ??
-        null;
+        null,
+    presentation
+  );
   const displayedAttack =
     (locksPresentedAttack
       ? presentedAttack.attackEvent.attack
@@ -1368,11 +1413,16 @@ function renderActionRegion(
     (activePresentationKind === "ACTION" &&
       recentCardUse !== null) ||
     (activeResourceEffect !== null &&
-      recentCardUse === null &&
-      presentedAttack === null)
+      presentedAttack === null &&
+      (recentCardUse === null ||
+        (recentCardUse.targetPlayerId ?? recentCardUse.actorId) ===
+          recentCardUse.actorId))
   );
   const displayedResourceEffect =
     activeResourceEffect ?? recentCardUse?.recovery ?? null;
+  // Every render rebuilds the DOM, so overlays resume from the elapsed step time
+  // instead of replaying their entrance.
+  const effectDelayStyle = presentationEffectDelayStyle(presentation, nowMs);
   return `
     <section
       class="gf-panel gf-action"
@@ -1385,6 +1435,11 @@ function renderActionRegion(
       data-has-defense="${String(selectedDefenseDefinitionIds.length > 0 || defensePower !== null)}"
       data-has-route="${String(showRoute && Boolean(actor && (target || showsExchange)))}"
       data-exchange="${String(showsExchange)}"
+      data-hand-action="${String(
+        handActionDraft !== null ||
+          actionCardDefinitionIds[0] === "discard" ||
+          actionCardDefinitionIds[0] === "sacrifice"
+      )}"
       data-trade="${String(
         tradeScene !== null ||
           offeredTrade !== null ||
@@ -1446,6 +1501,13 @@ function renderActionRegion(
         ${
           exchangeDraft
             ? '<button type="button" class="gf-action__confirm" data-submit-exchange>両替する</button>'
+            : handActionDraft
+              ? `<button
+          type="button"
+          class="gf-action__confirm"
+          data-submit-hand-action
+          ${ui.selectedHandActionCardIds.length > 0 ? "" : "disabled"}
+        >${handActionDraft === "DISCARD" ? "選んだ神器を捨てる" : "選んだ神器をささげる"}</button>`
             : tradeDraft
               ? `<button
           type="button"
@@ -1517,6 +1579,7 @@ function renderActionRegion(
             ? `<div
                 class="gf-action__result"
                 data-result="${presentedAttack.hitRoll.hit ? "hit" : "miss"}"
+                style="${effectDelayStyle}"
                 role="status"
               ><strong>${presentedAttack.hitRoll.hit ? "命中" : "外れた"}</strong></div>`
             : ""
@@ -1529,11 +1592,12 @@ function renderActionRegion(
                 class="gf-action__result"
                 data-result="${presentedAttack.damage.amount === 0 ? "safe" : "damage"}"
                 data-polarity="${presentedAttack.damage.amount === 0 ? "neutral" : "negative"}"
+                style="${effectDelayStyle}"
                 role="status"
               >${
                 presentedAttack.damage.amount === 0
                   ? "<strong>無事</strong>"
-                  : `<strong>-${presentedAttack.damage.amount}hp</strong>`
+                  : `<strong>${presentedAttack.damage.amount}</strong><span>ダメージ</span>`
               }</div>`
             : ""
         }
@@ -1545,8 +1609,10 @@ function renderActionRegion(
                 data-polarity="${displayedResourceEffect.delta > 0 ? "positive" : "negative"}"
                 data-resource="${displayedResourceEffect.resource.toLowerCase()}"
                 data-player-id="${escapeHtml(displayedResourceEffect.playerId)}"
+                data-placement="${recentCardUse !== null && !showRoute ? "actor" : "target"}"
+                style="${effectDelayStyle}"
                 role="status"
-              ><strong>${displayedResourceEffect.delta > 0 ? "+" : ""}${displayedResourceEffect.delta}${displayedResourceEffect.resource.toLowerCase()}</strong></div>`
+              >${renderResourceEffectLabel(displayedResourceEffect)}</div>`
             : ""
         }
         ${
@@ -1554,6 +1620,7 @@ function renderActionRegion(
             ? `<div
                 class="gf-action__effect"
                 data-effect="calamity"
+                style="${effectDelayStyle}"
                 role="status"
               ><strong>${escapeHtml(
                 presentedAttack.calamity.type === "CALAMITY_APPLIED"
@@ -1591,11 +1658,12 @@ function renderActionRegion(
         </div>
       </dl>
       ${
-        ui.mode === "COMPOSING_REACTION" ||
-        presentedAttack?.stageKind === "REACTION" ||
-        presentedAttack?.stageKind === "DAMAGE_RESULT" ||
-        presentedAttack?.stageKind === "CALAMITY" ||
-        (recentCardUse?.defensePower ?? null) !== null
+        !showForgive &&
+        (ui.mode === "COMPOSING_REACTION" ||
+          presentedAttack?.stageKind === "REACTION" ||
+          presentedAttack?.stageKind === "DAMAGE_RESULT" ||
+          presentedAttack?.stageKind === "CALAMITY" ||
+          (recentCardUse?.defensePower ?? null) !== null)
           ? `<dl class="gf-action__defense-summary" aria-label="選択中の防御値">
               <div><dt>合計防御</dt><dd>${defensePower ?? 0}</dd></div>
             </dl>`
@@ -1936,6 +2004,84 @@ function activeExchangeDraft(
     !ui.inputDeadlineExpired
     ? ui.exchangeDraft
     : null;
+}
+
+// While a multi-card declaration is on screen, only the cards whose stage has
+// started are shown; each later stage adds the next card to the stack.
+function revealStagedCards(
+  cardDefinitionIds: string[],
+  presentation: PresentationQueueState | null,
+  eventType: "ACTION_DECLARED" | "REACTION_DECLARED"
+): string[] {
+  const active = presentation?.activeStep?.step;
+  if (
+    !active ||
+    active.event.type !== eventType ||
+    active.stageCount < 2 ||
+    (active.event.type === "ACTION_DECLARED" &&
+      active.event.actionType === "SELL_CARD")
+  ) {
+    return cardDefinitionIds;
+  }
+  return cardDefinitionIds.slice(0, active.stageIndex + 1);
+}
+
+// The defense total climbs with the staged defense stack instead of showing
+// the final value before every card has joined it.
+function revealStagedDefensePower(
+  defensePower: number | null,
+  presentation: PresentationQueueState | null
+): number | null {
+  const active = presentation?.activeStep?.step;
+  if (
+    defensePower === null ||
+    !active ||
+    active.event.type !== "REACTION_DECLARED" ||
+    active.stageCount < 2 ||
+    !active.event.defenseValues
+  ) {
+    return defensePower;
+  }
+  return active.event.defenseValues
+    .slice(0, active.stageIndex + 1)
+    .reduce((total, value) => total + value, 0);
+}
+
+function activeHandActionDraft(
+  view: GameViewState,
+  ui: UiInteractionState
+): "DISCARD" | "SACRIFICE" | null {
+  if (
+    ui.mode !== "COMPOSING_ACTION" ||
+    ui.interactionLocked ||
+    ui.inputDeadlineExpired ||
+    ui.handActionMode === null
+  ) {
+    return null;
+  }
+  return view.self?.legalActions.some(({ type }) => type === ui.handActionMode)
+    ? ui.handActionMode
+    : null;
+}
+
+function handActionCardDefinitionId(type: "DISCARD" | "SACRIFICE"): string {
+  return type === "DISCARD" ? "discard" : "sacrifice";
+}
+
+function handActionDefinitionIds(
+  view: GameViewState,
+  ui: UiInteractionState,
+  type: "DISCARD" | "SACRIFICE"
+): string[] {
+  return [
+    handActionCardDefinitionId(type),
+    ...ui.selectedHandActionCardIds.flatMap(
+      (instanceId) =>
+        view.self?.hand
+          .filter((card) => card.instanceId === instanceId)
+          .map(({ cardDefinitionId }) => cardDefinitionId) ?? []
+    )
+  ];
 }
 
 function exchangeCardDefinitionIds(
@@ -2324,7 +2470,9 @@ export function renderBattleScreen(
     displayedView,
     displayedView.activePlayerId
   );
-  const modeName = view.matchMode === "TRAINING" ? "修行" : "オンライン対戦";
+  const modeName =
+    links.modeLabel ??
+    (view.matchMode === "TRAINING" ? "修行" : "オンライン対戦");
   const displayedEndTimeAt =
     view.endTimeAt ?? (view.matchMode === "TRAINING" ? 75 : null);
   const endTimeLabel =
@@ -2420,7 +2568,8 @@ export function renderBattleScreen(
     <a
       class="gf-header__link"
       href="${safeHref(links.backHref, "/")}"
-      aria-label="対戦画面から戻る"
+      ${links.exitAction ? "data-exit-battle" : ""}
+      aria-label="${links.exitAction ? "対戦から切断してロビーへ戻る" : "対戦画面から戻る"}"
     >←</a>
     <div class="gf-header__identity">
       <span class="gf-header__mode">${modeName}</span>
@@ -2547,6 +2696,7 @@ export type BattleScreenInteractions = {
   createCommandId?: () => string;
   onCommand?: (command: GameCommand) => void;
   onUiStateChange?: (ui: UiInteractionState) => void;
+  onExit?: () => void;
   now?: () => number;
 };
 
@@ -2585,6 +2735,7 @@ export function mountBattleScreen(
   let deadlineTimer: ReturnType<typeof setTimeout> | null = null;
   let renderedDeadlineSeconds: number | null = null;
   let disposed = false;
+  let exitConfirmOpen = false;
   const sounds = new SoundEffectPlayer();
   const soundedStepIds = new Set<string>();
   let mutedSoundEventSeqThrough = 0;
@@ -2609,6 +2760,41 @@ export function mountBattleScreen(
       currentUi,
       renderNow
     );
+    const battleRoot = container.querySelector<HTMLElement>(
+      ".gf-battle-screen"
+    );
+    const openExitConfirm = (): void => {
+      if (!battleRoot || battleRoot.querySelector("[data-exit-confirm]")) return;
+      exitConfirmOpen = true;
+      const overlay = container.ownerDocument.createElement("div");
+      overlay.className = "gf-exit-confirm";
+      overlay.dataset.exitConfirm = "";
+      overlay.innerHTML =
+        '<div class="gf-exit-confirm__panel" role="dialog" aria-label="戦いをあきらめますか">' +
+        '<button type="button" class="gf-exit-confirm__button" data-exit-confirm-accept>戦いをあきらめる</button>' +
+        "</div>";
+      const close = (): void => {
+        exitConfirmOpen = false;
+        overlay.remove();
+      };
+      overlay.addEventListener("click", (event) => {
+        if (event.target === overlay) close();
+      });
+      overlay
+        .querySelector("[data-exit-confirm-accept]")
+        ?.addEventListener("click", () => {
+          close();
+          interactions.onExit?.();
+        });
+      battleRoot.append(overlay);
+    };
+    battleRoot
+      ?.querySelector<HTMLElement>("[data-exit-battle]")
+      ?.addEventListener("click", (event) => {
+        event.preventDefault();
+        openExitConfirm();
+      });
+    if (exitConfirmOpen) openExitConfirm();
     for (const button of container.querySelectorAll<HTMLElement>(
       "[data-select-card]"
     )) {
@@ -2628,36 +2814,26 @@ export function mountBattleScreen(
       });
     }
     for (const button of container.querySelectorAll<HTMLButtonElement>(
-      "[data-submit-hand-action]"
+      "[data-select-hand-action-card]"
     )) {
       button.addEventListener("click", () => {
-        const type = button.dataset.submitHandAction;
-        const cardInstanceId = button.dataset.handActionCardInstance;
-        const action = currentView.self?.legalActions.find(
-          (candidate) => candidate.type === type
-        );
-        if (
-          (type !== "DISCARD" && type !== "SACRIFICE") ||
-          !cardInstanceId ||
-          (action?.type !== "DISCARD" && action?.type !== "SACRIFICE") ||
-          !action.cardInstanceIds.includes(cardInstanceId) ||
-          currentUi.handActionMode !== type
-        ) {
-          return;
-        }
-        const commandId = currentUi.awaitingCommandId ?? createCommandId();
-        const command: GameCommand = {
-          type,
-          matchId: currentView.matchId,
-          commandId,
-          actorId: currentView.self!.playerId,
-          expectedRevision: currentView.revision,
-          cardInstanceId
-        };
-        update(lockForCommand(currentUi, commandId));
-        interactions.onCommand?.(command);
+        const id = button.dataset.selectHandActionCard;
+        if (id) update(toggleHandActionCard(currentUi, id, currentView));
       });
     }
+    container.querySelector("[data-submit-hand-action]")?.addEventListener(
+      "click",
+      () => {
+        const prepared = prepareHandActionSubmission(
+          currentUi,
+          currentView,
+          createCommandId
+        );
+        if (!prepared) return;
+        update(prepared.ui);
+        interactions.onCommand?.(prepared.command);
+      }
+    );
     for (const button of container.querySelectorAll<HTMLButtonElement>(
       "[data-open-utility]"
     )) {
@@ -2897,10 +3073,6 @@ export function mountBattleScreen(
           (candidate) => candidate.type === type
         );
         if (!action) return;
-        const values = new FormData(form);
-        const cardInstanceId = String(
-          values.get("cardInstanceId") ?? ""
-        );
         const commandId =
           currentUi.awaitingCommandId ?? createCommandId();
         const base = {
@@ -2911,12 +3083,6 @@ export function mountBattleScreen(
         };
         let command: GameCommand | null = null;
         switch (action.type) {
-          case "DISCARD":
-          case "SACRIFICE":
-            if (action.cardInstanceIds.includes(cardInstanceId)) {
-              command = { ...base, type: action.type, cardInstanceId };
-            }
-            break;
           case "SURRENDER":
             command = { ...base, type: "SURRENDER" };
             break;
@@ -3115,6 +3281,36 @@ export function mountBattleScreen(
 }
 
 export const BATTLE_SCREEN_STYLES = `
+.gf-exit-confirm {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 40, 30, 0.6);
+}
+
+.gf-exit-confirm__panel {
+  inline-size: 44%;
+  block-size: 40%;
+  display: grid;
+  place-items: center;
+  border-radius: 1.5rem;
+  background: #ffeeee;
+}
+
+.gf-exit-confirm__button {
+  inline-size: 92%;
+  padding: 0.6em 0.4em;
+  border: 3px solid #f08080;
+  border-radius: 0.8rem;
+  color: #ffffff;
+  background: #dd4444;
+  font-size: clamp(16px, 3.4cqi, 40px);
+  font-weight: 800;
+  cursor: pointer;
+}
+
 :where(.gf-battle-screen, .gf-battle-screen *) {
   box-sizing: border-box;
 }
@@ -4562,15 +4758,21 @@ export const BATTLE_SCREEN_STYLES = `
 }
 
 .gf-action__forgive {
-  inline-size: 100%;
-  min-block-size: 90px;
+  position: absolute;
+  z-index: 7;
+  top: 105.1724%;
+  left: 56.25%;
+  inline-size: 40.625%;
+  block-size: 13.7931%;
   display: grid;
   place-content: center;
-  border: 5px solid #bb4444;
-  border-radius: 6px;
-  color: #bb0000;
-  background: #ffeeee;
-  font-size: clamp(24px, 4.4444cqi, 48px);
+  border: 0;
+  border-radius: 10px;
+  color: #eeffee;
+  background: #aa3344;
+  box-shadow: 0 2px 0 rgb(125 105 60 / 28%);
+  font-size: clamp(16px, 2.2222cqi, 24px);
+  line-height: 1;
 }
 
 .gf-action__forgive--trade {
@@ -4661,7 +4863,7 @@ export const BATTLE_SCREEN_STYLES = `
   color: #ffffff;
   background: #ee88aa;
   font-size: clamp(24px, 4.4444cqi, 48px);
-  animation: gf-effect-overlay-enter 180ms ease-out both;
+  animation: gf-effect-overlay-enter 180ms ease-out var(--gf-trade-delay) both;
 }
 
 @keyframes gf-trade-move-right {
@@ -4723,7 +4925,29 @@ export const BATTLE_SCREEN_STYLES = `
   box-shadow: 0 8px 18px rgb(0 0 0 / 18%);
   text-align: center;
   transform: translate(-50%, -50%);
-  animation: gf-effect-overlay-enter 180ms ease-out both;
+  animation: gf-effect-overlay-enter 180ms ease-out var(--gf-effect-delay, 0ms) both;
+}
+
+.gf-action__result {
+  --gf-effect-rest-y: -50%;
+  animation: gf-effect-drop-in 183ms ease-out var(--gf-effect-delay, 0ms) both;
+}
+
+.gf-action__result[data-result="hit"],
+.gf-action__result[data-result="miss"] {
+  --gf-effect-rest-y: 0%;
+  top: -8px;
+  block-size: 90px;
+  animation-duration: 233ms;
+}
+
+.gf-action__result[data-placement="actor"] {
+  top: 42%;
+  left: 23.4375%;
+}
+
+.gf-action__result[data-polarity="positive"] {
+  animation: gf-effect-rise-in 800ms cubic-bezier(0.16, 1, 0.3, 1) var(--gf-effect-delay, 0ms) both;
 }
 
 @keyframes gf-effect-overlay-enter {
@@ -4735,6 +4959,34 @@ export const BATTLE_SCREEN_STYLES = `
   to {
     opacity: 1;
     transform: translate(-50%, -50%);
+  }
+}
+
+@keyframes gf-effect-drop-in {
+  from {
+    clip-path: inset(100% -24px -24px);
+    transform: translate(-50%, calc(var(--gf-effect-rest-y) - 100%));
+  }
+
+  to {
+    clip-path: inset(0 -24px -24px);
+    transform: translate(-50%, var(--gf-effect-rest-y));
+  }
+}
+
+@keyframes gf-effect-rise-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, calc(var(--gf-effect-rest-y) + 40px));
+  }
+
+  8% {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 1;
+    transform: translate(-50%, var(--gf-effect-rest-y));
   }
 }
 
@@ -4788,21 +5040,40 @@ export const BATTLE_SCREEN_STYLES = `
   background: #eeffee;
 }
 
-.gf-action__result[data-polarity="positive"] {
-  border-color: #159447;
-  color: #087a34;
-  background: #eeffee;
+.gf-action__result[data-result="hit"],
+.gf-action__result[data-result="miss"] {
+  padding: 0;
+  border: 2px solid #990000;
+  color: #990000;
+  background: #ffc8cc;
 }
 
-.gf-action__result[data-polarity="positive"] strong {
+.gf-action__result[data-result="hit"] strong,
+.gf-action__result[data-result="miss"] strong {
+  font-size: clamp(24px, 4.4444cqi, 48px);
+  line-height: 1;
   text-shadow: none;
 }
 
-.gf-action__result[data-result="damage"],
-.gf-action__result[data-polarity="negative"] {
-  border-color: #c83b3b;
-  color: #bb0000;
-  background: #ffeeee;
+.gf-action__result[data-result="damage"] span {
+  justify-self: end;
+  font-style: italic;
+}
+
+.gf-action__result[data-polarity="positive"] {
+  border-color: transparent;
+  color: #ffffff;
+  background: #1ddd7f;
+}
+
+.gf-action__result[data-polarity="positive"][data-resource="mp"] {
+  background: #7b6cf0;
+}
+
+.gf-action__result[data-polarity="positive"] strong {
+  font-size: clamp(28px, 5.5556cqi, 60px);
+  line-height: 1;
+  text-shadow: none;
 }
 
 .gf-action__result[data-result="safe"] strong {
@@ -4963,7 +5234,8 @@ export const BATTLE_SCREEN_STYLES = `
   visibility: hidden;
 }
 
-.gf-action[data-trade="true"] .gf-action__summary {
+.gf-action[data-trade="true"] .gf-action__summary,
+.gf-action[data-hand-action="true"] .gf-action__summary {
   visibility: hidden;
 }
 

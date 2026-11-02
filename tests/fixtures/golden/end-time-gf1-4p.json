@@ -72,7 +72,9 @@
       "expectedRevision": 94,
       "occurredAt": "2026-07-26T00:00:00.000Z",
       "type": "SACRIFICE",
-      "cardInstanceId": "golden-end-time-gf1-4p:card:25"
+      "cardInstanceIds": [
+        "golden-end-time-gf1-4p:card:25"
+      ]
     },
     {
       "matchId": "golden-end-time-gf1-4p",
@@ -116,7 +118,9 @@
       "expectedRevision": 137,
       "occurredAt": "2026-07-26T00:00:00.000Z",
       "type": "SACRIFICE",
-      "cardInstanceId": "golden-end-time-gf1-4p:card:69"
+      "cardInstanceIds": [
+        "golden-end-time-gf1-4p:card:69"
+      ]
     },
     {
       "matchId": "golden-end-time-gf1-4p",
@@ -164,7 +168,9 @@
       "expectedRevision": 171,
       "occurredAt": "2026-07-26T00:00:00.000Z",
       "type": "SACRIFICE",
-      "cardInstanceId": "golden-end-time-gf1-4p:card:11"
+      "cardInstanceIds": [
+        "golden-end-time-gf1-4p:card:11"
+      ]
     },
     {
       "matchId": "golden-end-time-gf1-4p",
@@ -199,7 +205,9 @@
       "expectedRevision": 201,
       "occurredAt": "2026-07-26T00:00:00.000Z",
       "type": "SACRIFICE",
-      "cardInstanceId": "golden-end-time-gf1-4p:card:5"
+      "cardInstanceIds": [
+        "golden-end-time-gf1-4p:card:5"
+      ]
     },
     {
       "matchId": "golden-end-time-gf1-4p",
@@ -395,7 +403,9 @@
       "expectedRevision": 363,
       "occurredAt": "2026-07-26T00:00:00.000Z",
       "type": "SACRIFICE",
-      "cardInstanceId": "golden-end-time-gf1-4p:card:35"
+      "cardInstanceIds": [
+        "golden-end-time-gf1-4p:card:35"
+      ]
     },
     {
       "matchId": "golden-end-time-gf1-4p",
@@ -404,7 +414,9 @@
       "expectedRevision": 373,
       "occurredAt": "2026-07-26T00:00:00.000Z",
       "type": "SACRIFICE",
-      "cardInstanceId": "golden-end-time-gf1-4p:card:15"
+      "cardInstanceIds": [
+        "golden-end-time-gf1-4p:card:15"
+      ]
     },
     {
       "matchId": "golden-end-time-gf1-4p",
@@ -507,7 +519,9 @@
       "expectedRevision": 455,
       "occurredAt": "2026-07-26T00:00:00.000Z",
       "type": "SACRIFICE",
-      "cardInstanceId": "golden-end-time-gf1-4p:card:346"
+      "cardInstanceIds": [
+        "golden-end-time-gf1-4p:card:346"
+      ]
     },
     {
       "matchId": "golden-end-time-gf1-4p",
@@ -568,7 +582,9 @@
       "expectedRevision": 501,
       "occurredAt": "2026-07-26T00:00:00.000Z",
       "type": "SACRIFICE",
-      "cardInstanceId": "golden-end-time-gf1-4p:card:406"
+      "cardInstanceIds": [
+        "golden-end-time-gf1-4p:card:406"
+      ]
     },
     {
       "matchId": "golden-end-time-gf1-4p",
@@ -603,7 +619,9 @@
       "expectedRevision": 535,
       "occurredAt": "2026-07-26T00:00:00.000Z",
       "type": "SACRIFICE",
-      "cardInstanceId": "golden-end-time-gf1-4p:card:437"
+      "cardInstanceIds": [
+        "golden-end-time-gf1-4p:card:437"
+      ]
     },
     {
       "matchId": "golden-end-time-gf1-4p",
@@ -675,7 +693,9 @@
       "expectedRevision": 595,
       "occurredAt": "2026-07-26T00:00:00.000Z",
       "type": "SACRIFICE",
-      "cardInstanceId": "golden-end-time-gf1-4p:card:572"
+      "cardInstanceIds": [
+        "golden-end-time-gf1-4p:card:572"
+      ]
     },
     {
       "matchId": "golden-end-time-gf1-4p",
@@ -730,7 +750,9 @@
       "expectedRevision": 649,
       "occurredAt": "2026-07-26T00:00:00.000Z",
       "type": "SACRIFICE",
-      "cardInstanceId": "golden-end-time-gf1-4p:card:610"
+      "cardInstanceIds": [
+        "golden-end-time-gf1-4p:card:610"
+      ]
     },
     {
       "matchId": "golden-end-time-gf1-4p",
@@ -795,7 +817,9 @@
       "expectedRevision": 706,
       "occurredAt": "2026-07-26T00:00:00.000Z",
       "type": "SACRIFICE",
-      "cardInstanceId": "golden-end-time-gf1-4p:card:281"
+      "cardInstanceIds": [
+        "golden-end-time-gf1-4p:card:281"
+      ]
     },
     {
       "matchId": "golden-end-time-gf1-4p",
@@ -828,7 +852,9 @@
       "expectedRevision": 729,
       "occurredAt": "2026-07-26T00:00:00.000Z",
       "type": "SACRIFICE",
-      "cardInstanceId": "golden-end-time-gf1-4p:card:37"
+      "cardInstanceIds": [
+        "golden-end-time-gf1-4p:card:37"
+      ]
     },
     {
       "matchId": "golden-end-time-gf1-4p",
@@ -837,7 +863,9 @@
       "expectedRevision": 739,
       "occurredAt": "2026-07-26T00:00:00.000Z",
       "type": "SACRIFICE",
-      "cardInstanceId": "golden-end-time-gf1-4p:card:700"
+      "cardInstanceIds": [
+        "golden-end-time-gf1-4p:card:700"
+      ]
     },
     {
       "matchId": "golden-end-time-gf1-4p",
@@ -846,7 +874,9 @@
       "expectedRevision": 749,
       "occurredAt": "2026-07-26T00:00:00.000Z",
       "type": "SACRIFICE",
-      "cardInstanceId": "golden-end-time-gf1-4p:card:539"
+      "cardInstanceIds": [
+        "golden-end-time-gf1-4p:card:539"
+      ]
     },
     {
       "matchId": "golden-end-time-gf1-4p",
@@ -3702,6 +3732,7 @@
       "defenseCardDefinitionIds": [],
       "defenseLearnedMiracleDefinitionIds": [],
       "defensePower": 0,
+      "defenseValues": [],
       "eventSeq": 82,
       "revision": 82,
       "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -4132,6 +4163,7 @@
       "defenseCardDefinitionIds": [],
       "defenseLearnedMiracleDefinitionIds": [],
       "defensePower": 0,
+      "defenseValues": [],
       "eventSeq": 113,
       "revision": 113,
       "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -4662,6 +4694,9 @@
       ],
       "defenseLearnedMiracleDefinitionIds": [],
       "defensePower": 0,
+      "defenseValues": [
+        0
+      ],
       "eventSeq": 153,
       "revision": 153,
       "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -4721,6 +4756,9 @@
       ],
       "defenseLearnedMiracleDefinitionIds": [],
       "defensePower": 9,
+      "defenseValues": [
+        9
+      ],
       "eventSeq": 157,
       "revision": 157,
       "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -5129,6 +5167,9 @@
       ],
       "defenseLearnedMiracleDefinitionIds": [],
       "defensePower": 6,
+      "defenseValues": [
+        6
+      ],
       "eventSeq": 187,
       "revision": 187,
       "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -5558,6 +5599,9 @@
       ],
       "defenseLearnedMiracleDefinitionIds": [],
       "defensePower": 2,
+      "defenseValues": [
+        2
+      ],
       "eventSeq": 219,
       "revision": 219,
       "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -5840,6 +5884,7 @@
       "defenseCardDefinitionIds": [],
       "defenseLearnedMiracleDefinitionIds": [],
       "defensePower": 0,
+      "defenseValues": [],
       "eventSeq": 239,
       "revision": 239,
       "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -6166,6 +6211,7 @@
       "defenseCardDefinitionIds": [],
       "defenseLearnedMiracleDefinitionIds": [],
       "defensePower": 0,
+      "defenseValues": [],
       "eventSeq": 258,
       "revision": 258,
       "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -6380,6 +6426,9 @@
       ],
       "defenseLearnedMiracleDefinitionIds": [],
       "defensePower": 3,
+      "defenseValues": [
+        3
+      ],
       "eventSeq": 273,
       "revision": 273,
       "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -6668,6 +6717,7 @@
       "defenseCardDefinitionIds": [],
       "defenseLearnedMiracleDefinitionIds": [],
       "defensePower": 0,
+      "defenseValues": [],
       "eventSeq": 293,
       "revision": 293,
       "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -7041,6 +7091,9 @@
       ],
       "defenseLearnedMiracleDefinitionIds": [],
       "defensePower": 7,
+      "defenseValues": [
+        7
+      ],
       "eventSeq": 321,
       "revision": 321,
       "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -8060,6 +8113,7 @@
       "defenseCardDefinitionIds": [],
       "defenseLearnedMiracleDefinitionIds": [],
       "defensePower": 0,
+      "defenseValues": [],
       "eventSeq": 401,
       "revision": 401,
       "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -8308,6 +8362,7 @@
       "defenseCardDefinitionIds": [],
       "defenseLearnedMiracleDefinitionIds": [],
       "defensePower": 0,
+      "defenseValues": [],
       "eventSeq": 418,
       "revision": 418,
       "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -8515,6 +8570,7 @@
       "defenseCardDefinitionIds": [],
       "defenseLearnedMiracleDefinitionIds": [],
       "defensePower": 0,
+      "defenseValues": [],
       "eventSeq": 432,
       "revision": 432,
       "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -9190,6 +9246,9 @@
       ],
       "defenseLearnedMiracleDefinitionIds": [],
       "defensePower": 2,
+      "defenseValues": [
+        2
+      ],
       "eventSeq": 471,
       "revision": 471,
       "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -9448,6 +9507,9 @@
       ],
       "defenseLearnedMiracleDefinitionIds": [],
       "defensePower": 7,
+      "defenseValues": [
+        7
+      ],
       "eventSeq": 489,
       "revision": 489,
       "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -9893,6 +9955,9 @@
       ],
       "defenseLearnedMiracleDefinitionIds": [],
       "defensePower": 1,
+      "defenseValues": [
+        1
+      ],
       "eventSeq": 523,
       "revision": 523,
       "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -10403,6 +10468,9 @@
       ],
       "defenseLearnedMiracleDefinitionIds": [],
       "defensePower": 5,
+      "defenseValues": [
+        5
+      ],
       "eventSeq": 562,
       "revision": 562,
       "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -10717,6 +10785,7 @@
       "defenseCardDefinitionIds": [],
       "defenseLearnedMiracleDefinitionIds": [],
       "defensePower": 0,
+      "defenseValues": [],
       "eventSeq": 584,
       "revision": 584,
       "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -11343,6 +11412,9 @@
       ],
       "defenseLearnedMiracleDefinitionIds": [],
       "defensePower": 12,
+      "defenseValues": [
+        12
+      ],
       "eventSeq": 633,
       "revision": 633,
       "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -12125,6 +12197,7 @@
       "defenseCardDefinitionIds": [],
       "defenseLearnedMiracleDefinitionIds": [],
       "defensePower": 0,
+      "defenseValues": [],
       "eventSeq": 695,
       "revision": 695,
       "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -12497,6 +12570,7 @@
       "defenseCardDefinitionIds": [],
       "defenseLearnedMiracleDefinitionIds": [],
       "defensePower": 0,
+      "defenseValues": [],
       "eventSeq": 722,
       "revision": 722,
       "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -13038,6 +13112,7 @@
       "defenseCardDefinitionIds": [],
       "defenseLearnedMiracleDefinitionIds": [],
       "defensePower": 0,
+      "defenseValues": [],
       "eventSeq": 765,
       "revision": 765,
       "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -13217,6 +13292,7 @@
       "defenseCardDefinitionIds": [],
       "defenseLearnedMiracleDefinitionIds": [],
       "defensePower": 0,
+      "defenseValues": [],
       "eventSeq": 778,
       "revision": 778,
       "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -15291,6 +15367,7 @@
             "defenseCardDefinitionIds": [],
             "defenseLearnedMiracleDefinitionIds": [],
             "defensePower": 0,
+            "defenseValues": [],
             "eventSeq": 82,
             "revision": 82,
             "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -15467,7 +15544,7 @@
         ]
       },
       "cpu:player-4:94": {
-        "commandFingerprint": "{\"actorId\":\"player-4\",\"cardInstanceId\":\"golden-end-time-gf1-4p:card:25\",\"commandId\":\"cpu:player-4:94\",\"expectedRevision\":94,\"matchId\":\"golden-end-time-gf1-4p\",\"occurredAt\":\"2026-07-26T00:00:00.000Z\",\"type\":\"SACRIFICE\"}",
+        "commandFingerprint": "{\"actorId\":\"player-4\",\"cardInstanceIds\":[\"golden-end-time-gf1-4p:card:25\"],\"commandId\":\"cpu:player-4:94\",\"expectedRevision\":94,\"matchId\":\"golden-end-time-gf1-4p\",\"occurredAt\":\"2026-07-26T00:00:00.000Z\",\"type\":\"SACRIFICE\"}",
         "revision": 108,
         "eventSequence": 108,
         "events": [
@@ -15749,6 +15826,7 @@
             "defenseCardDefinitionIds": [],
             "defenseLearnedMiracleDefinitionIds": [],
             "defensePower": 0,
+            "defenseValues": [],
             "eventSeq": 113,
             "revision": 113,
             "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -16067,7 +16145,7 @@
         ]
       },
       "cpu:player-2:137": {
-        "commandFingerprint": "{\"actorId\":\"player-2\",\"cardInstanceId\":\"golden-end-time-gf1-4p:card:69\",\"commandId\":\"cpu:player-2:137\",\"expectedRevision\":137,\"matchId\":\"golden-end-time-gf1-4p\",\"occurredAt\":\"2026-07-26T00:00:00.000Z\",\"type\":\"SACRIFICE\"}",
+        "commandFingerprint": "{\"actorId\":\"player-2\",\"cardInstanceIds\":[\"golden-end-time-gf1-4p:card:69\"],\"commandId\":\"cpu:player-2:137\",\"expectedRevision\":137,\"matchId\":\"golden-end-time-gf1-4p\",\"occurredAt\":\"2026-07-26T00:00:00.000Z\",\"type\":\"SACRIFICE\"}",
         "revision": 147,
         "eventSequence": 147,
         "events": [
@@ -16307,6 +16385,9 @@
             ],
             "defenseLearnedMiracleDefinitionIds": [],
             "defensePower": 0,
+            "defenseValues": [
+              0
+            ],
             "eventSeq": 153,
             "revision": 153,
             "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -16373,6 +16454,9 @@
             ],
             "defenseLearnedMiracleDefinitionIds": [],
             "defensePower": 9,
+            "defenseValues": [
+              9
+            ],
             "eventSeq": 157,
             "revision": 157,
             "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -16562,7 +16646,7 @@
         ]
       },
       "cpu:player-1:171": {
-        "commandFingerprint": "{\"actorId\":\"player-1\",\"cardInstanceId\":\"golden-end-time-gf1-4p:card:11\",\"commandId\":\"cpu:player-1:171\",\"expectedRevision\":171,\"matchId\":\"golden-end-time-gf1-4p\",\"occurredAt\":\"2026-07-26T00:00:00.000Z\",\"type\":\"SACRIFICE\"}",
+        "commandFingerprint": "{\"actorId\":\"player-1\",\"cardInstanceIds\":[\"golden-end-time-gf1-4p:card:11\"],\"commandId\":\"cpu:player-1:171\",\"expectedRevision\":171,\"matchId\":\"golden-end-time-gf1-4p\",\"occurredAt\":\"2026-07-26T00:00:00.000Z\",\"type\":\"SACRIFICE\"}",
         "revision": 181,
         "eventSequence": 181,
         "events": [
@@ -16802,6 +16886,9 @@
             ],
             "defenseLearnedMiracleDefinitionIds": [],
             "defensePower": 6,
+            "defenseValues": [
+              6
+            ],
             "eventSeq": 187,
             "revision": 187,
             "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -16986,7 +17073,7 @@
         ]
       },
       "cpu:player-2:201": {
-        "commandFingerprint": "{\"actorId\":\"player-2\",\"cardInstanceId\":\"golden-end-time-gf1-4p:card:5\",\"commandId\":\"cpu:player-2:201\",\"expectedRevision\":201,\"matchId\":\"golden-end-time-gf1-4p\",\"occurredAt\":\"2026-07-26T00:00:00.000Z\",\"type\":\"SACRIFICE\"}",
+        "commandFingerprint": "{\"actorId\":\"player-2\",\"cardInstanceIds\":[\"golden-end-time-gf1-4p:card:5\"],\"commandId\":\"cpu:player-2:201\",\"expectedRevision\":201,\"matchId\":\"golden-end-time-gf1-4p\",\"occurredAt\":\"2026-07-26T00:00:00.000Z\",\"type\":\"SACRIFICE\"}",
         "revision": 213,
         "eventSequence": 213,
         "events": [
@@ -17252,6 +17339,9 @@
             ],
             "defenseLearnedMiracleDefinitionIds": [],
             "defensePower": 2,
+            "defenseValues": [
+              2
+            ],
             "eventSeq": 219,
             "revision": 219,
             "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -17548,6 +17638,7 @@
             "defenseCardDefinitionIds": [],
             "defenseLearnedMiracleDefinitionIds": [],
             "defensePower": 0,
+            "defenseValues": [],
             "eventSeq": 239,
             "revision": 239,
             "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -17888,6 +17979,7 @@
             "defenseCardDefinitionIds": [],
             "defenseLearnedMiracleDefinitionIds": [],
             "defensePower": 0,
+            "defenseValues": [],
             "eventSeq": 258,
             "revision": 258,
             "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -18116,6 +18208,9 @@
             ],
             "defenseLearnedMiracleDefinitionIds": [],
             "defensePower": 3,
+            "defenseValues": [
+              3
+            ],
             "eventSeq": 273,
             "revision": 273,
             "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -18418,6 +18513,7 @@
             "defenseCardDefinitionIds": [],
             "defenseLearnedMiracleDefinitionIds": [],
             "defensePower": 0,
+            "defenseValues": [],
             "eventSeq": 293,
             "revision": 293,
             "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -18812,6 +18908,9 @@
             ],
             "defenseLearnedMiracleDefinitionIds": [],
             "defensePower": 7,
+            "defenseValues": [
+              7
+            ],
             "eventSeq": 321,
             "revision": 321,
             "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -19357,7 +19456,7 @@
         ]
       },
       "cpu:player-1:363": {
-        "commandFingerprint": "{\"actorId\":\"player-1\",\"cardInstanceId\":\"golden-end-time-gf1-4p:card:35\",\"commandId\":\"cpu:player-1:363\",\"expectedRevision\":363,\"matchId\":\"golden-end-time-gf1-4p\",\"occurredAt\":\"2026-07-26T00:00:00.000Z\",\"type\":\"SACRIFICE\"}",
+        "commandFingerprint": "{\"actorId\":\"player-1\",\"cardInstanceIds\":[\"golden-end-time-gf1-4p:card:35\"],\"commandId\":\"cpu:player-1:363\",\"expectedRevision\":363,\"matchId\":\"golden-end-time-gf1-4p\",\"occurredAt\":\"2026-07-26T00:00:00.000Z\",\"type\":\"SACRIFICE\"}",
         "revision": 373,
         "eventSequence": 373,
         "events": [
@@ -19483,7 +19582,7 @@
         ]
       },
       "cpu:player-3:373": {
-        "commandFingerprint": "{\"actorId\":\"player-3\",\"cardInstanceId\":\"golden-end-time-gf1-4p:card:15\",\"commandId\":\"cpu:player-3:373\",\"expectedRevision\":373,\"matchId\":\"golden-end-time-gf1-4p\",\"occurredAt\":\"2026-07-26T00:00:00.000Z\",\"type\":\"SACRIFICE\"}",
+        "commandFingerprint": "{\"actorId\":\"player-3\",\"cardInstanceIds\":[\"golden-end-time-gf1-4p:card:15\"],\"commandId\":\"cpu:player-3:373\",\"expectedRevision\":373,\"matchId\":\"golden-end-time-gf1-4p\",\"occurredAt\":\"2026-07-26T00:00:00.000Z\",\"type\":\"SACRIFICE\"}",
         "revision": 385,
         "eventSequence": 385,
         "events": [
@@ -19880,6 +19979,7 @@
             "defenseCardDefinitionIds": [],
             "defenseLearnedMiracleDefinitionIds": [],
             "defensePower": 0,
+            "defenseValues": [],
             "eventSeq": 401,
             "revision": 401,
             "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -20142,6 +20242,7 @@
             "defenseCardDefinitionIds": [],
             "defenseLearnedMiracleDefinitionIds": [],
             "defensePower": 0,
+            "defenseValues": [],
             "eventSeq": 418,
             "revision": 418,
             "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -20363,6 +20464,7 @@
             "defenseCardDefinitionIds": [],
             "defenseLearnedMiracleDefinitionIds": [],
             "defensePower": 0,
+            "defenseValues": [],
             "eventSeq": 432,
             "revision": 432,
             "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -20826,7 +20928,7 @@
         ]
       },
       "cpu:player-4:455": {
-        "commandFingerprint": "{\"actorId\":\"player-4\",\"cardInstanceId\":\"golden-end-time-gf1-4p:card:346\",\"commandId\":\"cpu:player-4:455\",\"expectedRevision\":455,\"matchId\":\"golden-end-time-gf1-4p\",\"occurredAt\":\"2026-07-26T00:00:00.000Z\",\"type\":\"SACRIFICE\"}",
+        "commandFingerprint": "{\"actorId\":\"player-4\",\"cardInstanceIds\":[\"golden-end-time-gf1-4p:card:346\"],\"commandId\":\"cpu:player-4:455\",\"expectedRevision\":455,\"matchId\":\"golden-end-time-gf1-4p\",\"occurredAt\":\"2026-07-26T00:00:00.000Z\",\"type\":\"SACRIFICE\"}",
         "revision": 465,
         "eventSequence": 465,
         "events": [
@@ -21066,6 +21168,9 @@
             ],
             "defenseLearnedMiracleDefinitionIds": [],
             "defensePower": 2,
+            "defenseValues": [
+              2
+            ],
             "eventSeq": 471,
             "revision": 471,
             "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -21338,6 +21443,9 @@
             ],
             "defenseLearnedMiracleDefinitionIds": [],
             "defensePower": 7,
+            "defenseValues": [
+              7
+            ],
             "eventSeq": 489,
             "revision": 489,
             "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -21496,7 +21604,7 @@
         ]
       },
       "cpu:player-2:501": {
-        "commandFingerprint": "{\"actorId\":\"player-2\",\"cardInstanceId\":\"golden-end-time-gf1-4p:card:406\",\"commandId\":\"cpu:player-2:501\",\"expectedRevision\":501,\"matchId\":\"golden-end-time-gf1-4p\",\"occurredAt\":\"2026-07-26T00:00:00.000Z\",\"type\":\"SACRIFICE\"}",
+        "commandFingerprint": "{\"actorId\":\"player-2\",\"cardInstanceIds\":[\"golden-end-time-gf1-4p:card:406\"],\"commandId\":\"cpu:player-2:501\",\"expectedRevision\":501,\"matchId\":\"golden-end-time-gf1-4p\",\"occurredAt\":\"2026-07-26T00:00:00.000Z\",\"type\":\"SACRIFICE\"}",
         "revision": 517,
         "eventSequence": 517,
         "events": [
@@ -21804,6 +21912,9 @@
             ],
             "defenseLearnedMiracleDefinitionIds": [],
             "defensePower": 1,
+            "defenseValues": [
+              1
+            ],
             "eventSeq": 523,
             "revision": 523,
             "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -21962,7 +22073,7 @@
         ]
       },
       "cpu:player-1:535": {
-        "commandFingerprint": "{\"actorId\":\"player-1\",\"cardInstanceId\":\"golden-end-time-gf1-4p:card:437\",\"commandId\":\"cpu:player-1:535\",\"expectedRevision\":535,\"matchId\":\"golden-end-time-gf1-4p\",\"occurredAt\":\"2026-07-26T00:00:00.000Z\",\"type\":\"SACRIFICE\"}",
+        "commandFingerprint": "{\"actorId\":\"player-1\",\"cardInstanceIds\":[\"golden-end-time-gf1-4p:card:437\"],\"commandId\":\"cpu:player-1:535\",\"expectedRevision\":535,\"matchId\":\"golden-end-time-gf1-4p\",\"occurredAt\":\"2026-07-26T00:00:00.000Z\",\"type\":\"SACRIFICE\"}",
         "revision": 545,
         "eventSequence": 545,
         "events": [
@@ -22342,6 +22453,9 @@
             ],
             "defenseLearnedMiracleDefinitionIds": [],
             "defensePower": 5,
+            "defenseValues": [
+              5
+            ],
             "eventSeq": 562,
             "revision": 562,
             "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -22670,6 +22784,7 @@
             "defenseCardDefinitionIds": [],
             "defenseLearnedMiracleDefinitionIds": [],
             "defensePower": 0,
+            "defenseValues": [],
             "eventSeq": 584,
             "revision": 584,
             "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -22810,7 +22925,7 @@
         ]
       },
       "cpu:player-3:595": {
-        "commandFingerprint": "{\"actorId\":\"player-3\",\"cardInstanceId\":\"golden-end-time-gf1-4p:card:572\",\"commandId\":\"cpu:player-3:595\",\"expectedRevision\":595,\"matchId\":\"golden-end-time-gf1-4p\",\"occurredAt\":\"2026-07-26T00:00:00.000Z\",\"type\":\"SACRIFICE\"}",
+        "commandFingerprint": "{\"actorId\":\"player-3\",\"cardInstanceIds\":[\"golden-end-time-gf1-4p:card:572\"],\"commandId\":\"cpu:player-3:595\",\"expectedRevision\":595,\"matchId\":\"golden-end-time-gf1-4p\",\"occurredAt\":\"2026-07-26T00:00:00.000Z\",\"type\":\"SACRIFICE\"}",
         "revision": 607,
         "eventSequence": 607,
         "events": [
@@ -23331,6 +23446,9 @@
             ],
             "defenseLearnedMiracleDefinitionIds": [],
             "defensePower": 12,
+            "defenseValues": [
+              12
+            ],
             "eventSeq": 633,
             "revision": 633,
             "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -23531,7 +23649,7 @@
         ]
       },
       "cpu:player-4:649": {
-        "commandFingerprint": "{\"actorId\":\"player-4\",\"cardInstanceId\":\"golden-end-time-gf1-4p:card:610\",\"commandId\":\"cpu:player-4:649\",\"expectedRevision\":649,\"matchId\":\"golden-end-time-gf1-4p\",\"occurredAt\":\"2026-07-26T00:00:00.000Z\",\"type\":\"SACRIFICE\"}",
+        "commandFingerprint": "{\"actorId\":\"player-4\",\"cardInstanceIds\":[\"golden-end-time-gf1-4p:card:610\"],\"commandId\":\"cpu:player-4:649\",\"expectedRevision\":649,\"matchId\":\"golden-end-time-gf1-4p\",\"occurredAt\":\"2026-07-26T00:00:00.000Z\",\"type\":\"SACRIFICE\"}",
         "revision": 659,
         "eventSequence": 659,
         "events": [
@@ -24155,6 +24273,7 @@
             "defenseCardDefinitionIds": [],
             "defenseLearnedMiracleDefinitionIds": [],
             "defensePower": 0,
+            "defenseValues": [],
             "eventSeq": 695,
             "revision": 695,
             "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -24307,7 +24426,7 @@
         ]
       },
       "cpu:player-1:706": {
-        "commandFingerprint": "{\"actorId\":\"player-1\",\"cardInstanceId\":\"golden-end-time-gf1-4p:card:281\",\"commandId\":\"cpu:player-1:706\",\"expectedRevision\":706,\"matchId\":\"golden-end-time-gf1-4p\",\"occurredAt\":\"2026-07-26T00:00:00.000Z\",\"type\":\"SACRIFICE\"}",
+        "commandFingerprint": "{\"actorId\":\"player-1\",\"cardInstanceIds\":[\"golden-end-time-gf1-4p:card:281\"],\"commandId\":\"cpu:player-1:706\",\"expectedRevision\":706,\"matchId\":\"golden-end-time-gf1-4p\",\"occurredAt\":\"2026-07-26T00:00:00.000Z\",\"type\":\"SACRIFICE\"}",
         "revision": 716,
         "eventSequence": 716,
         "events": [
@@ -24548,6 +24667,7 @@
             "defenseCardDefinitionIds": [],
             "defenseLearnedMiracleDefinitionIds": [],
             "defensePower": 0,
+            "defenseValues": [],
             "eventSeq": 722,
             "revision": 722,
             "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -24631,7 +24751,7 @@
         ]
       },
       "cpu:player-1:729": {
-        "commandFingerprint": "{\"actorId\":\"player-1\",\"cardInstanceId\":\"golden-end-time-gf1-4p:card:37\",\"commandId\":\"cpu:player-1:729\",\"expectedRevision\":729,\"matchId\":\"golden-end-time-gf1-4p\",\"occurredAt\":\"2026-07-26T00:00:00.000Z\",\"type\":\"SACRIFICE\"}",
+        "commandFingerprint": "{\"actorId\":\"player-1\",\"cardInstanceIds\":[\"golden-end-time-gf1-4p:card:37\"],\"commandId\":\"cpu:player-1:729\",\"expectedRevision\":729,\"matchId\":\"golden-end-time-gf1-4p\",\"occurredAt\":\"2026-07-26T00:00:00.000Z\",\"type\":\"SACRIFICE\"}",
         "revision": 739,
         "eventSequence": 739,
         "events": [
@@ -24757,7 +24877,7 @@
         ]
       },
       "cpu:player-4:739": {
-        "commandFingerprint": "{\"actorId\":\"player-4\",\"cardInstanceId\":\"golden-end-time-gf1-4p:card:700\",\"commandId\":\"cpu:player-4:739\",\"expectedRevision\":739,\"matchId\":\"golden-end-time-gf1-4p\",\"occurredAt\":\"2026-07-26T00:00:00.000Z\",\"type\":\"SACRIFICE\"}",
+        "commandFingerprint": "{\"actorId\":\"player-4\",\"cardInstanceIds\":[\"golden-end-time-gf1-4p:card:700\"],\"commandId\":\"cpu:player-4:739\",\"expectedRevision\":739,\"matchId\":\"golden-end-time-gf1-4p\",\"occurredAt\":\"2026-07-26T00:00:00.000Z\",\"type\":\"SACRIFICE\"}",
         "revision": 749,
         "eventSequence": 749,
         "events": [
@@ -24883,7 +25003,7 @@
         ]
       },
       "cpu:player-1:749": {
-        "commandFingerprint": "{\"actorId\":\"player-1\",\"cardInstanceId\":\"golden-end-time-gf1-4p:card:539\",\"commandId\":\"cpu:player-1:749\",\"expectedRevision\":749,\"matchId\":\"golden-end-time-gf1-4p\",\"occurredAt\":\"2026-07-26T00:00:00.000Z\",\"type\":\"SACRIFICE\"}",
+        "commandFingerprint": "{\"actorId\":\"player-1\",\"cardInstanceIds\":[\"golden-end-time-gf1-4p:card:539\"],\"commandId\":\"cpu:player-1:749\",\"expectedRevision\":749,\"matchId\":\"golden-end-time-gf1-4p\",\"occurredAt\":\"2026-07-26T00:00:00.000Z\",\"type\":\"SACRIFICE\"}",
         "revision": 759,
         "eventSequence": 759,
         "events": [
@@ -25124,6 +25244,7 @@
             "defenseCardDefinitionIds": [],
             "defenseLearnedMiracleDefinitionIds": [],
             "defensePower": 0,
+            "defenseValues": [],
             "eventSeq": 765,
             "revision": 765,
             "occurredAt": "2026-07-26T00:00:00.000Z",
@@ -25317,6 +25438,7 @@
             "defenseCardDefinitionIds": [],
             "defenseLearnedMiracleDefinitionIds": [],
             "defensePower": 0,
+            "defenseValues": [],
             "eventSeq": 778,
             "revision": 778,
             "occurredAt": "2026-07-26T00:00:00.000Z",

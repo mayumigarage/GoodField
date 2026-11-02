@@ -148,7 +148,7 @@ function commandForAction(
         (instanceId) => instanceId
       );
       if (!cardInstanceId) return null;
-      return { ...base, type: action.type, cardInstanceId };
+      return { ...base, type: action.type, cardInstanceIds: [cardInstanceId] };
     }
     case "EXCHANGE_RESOURCES": {
       const cardInstanceId = selectOne(

@@ -1188,6 +1188,21 @@ function primaryAttackAmount(
   return typeof attack.amount === "number" ? attack.amount : null;
 }
 
+const DISCARDABLE_CATEGORIES: ReadonlySet<CardDefinition["category"]> = new Set([
+  "ARMOR",
+  "GOODS",
+  "MIRACLE",
+  "TRADE"
+]);
+
+export function isDiscardableDefinition(definition: CardDefinition): boolean {
+  return (
+    DISCARDABLE_CATEGORIES.has(definition.category) &&
+    definition.cardDefinitionId !== "sun-amulet" &&
+    definition.cardDefinitionId !== "dangerous-mortar"
+  );
+}
+
 export function canPray(state: MatchState, playerId: string): boolean {
   const player = state.players[playerId];
   if (!player) return false;
@@ -1511,29 +1526,42 @@ function handleDiscard(
   if (isSacrifice !== context.state.endTimeActive) {
     return fail(context.state, "INVALID_PHASE", "Discard mode does not match end-time state");
   }
-  const selected = getCard(context.state, command.actorId, command.cardInstanceId);
-  if (!selected) return fail(context.state, "CARD_NOT_FOUND", "Card is not in the actor hand");
   if (
-    !isSacrifice &&
-    (selected.definition.category === "WEAPON" ||
-      selected.definition.cardDefinitionId === "sun-amulet" ||
-      selected.definition.cardDefinitionId === "dangerous-mortar")
+    command.cardInstanceIds.length === 0 ||
+    new Set(command.cardInstanceIds).size !== command.cardInstanceIds.length
   ) {
-    return fail(context.state, "INVALID_CARD_SELECTION", "This card cannot be discarded");
+    return fail(context.state, "INVALID_CARD_SELECTION", "Discard selection is invalid");
+  }
+  const selectedCards = [];
+  for (const cardInstanceId of command.cardInstanceIds) {
+    const selected = getCard(context.state, command.actorId, cardInstanceId);
+    if (!selected) return fail(context.state, "CARD_NOT_FOUND", "Card is not in the actor hand");
+    if (!isSacrifice && !isDiscardableDefinition(selected.definition)) {
+      return fail(context.state, "INVALID_CARD_SELECTION", "This card cannot be discarded");
+    }
+    selectedCards.push(selected);
   }
   emit(context, {
     type: "ACTION_DECLARED",
     playerId: command.actorId,
     actionType: command.type,
     targetPlayerId: null,
-    actionCardDefinitionIds: [selected.definition.cardDefinitionId]
+    actionCardDefinitionIds: selectedCards.map(
+      ({ definition }) => definition.cardDefinitionId
+    )
   });
-  emit(context, {
-    type: "CARD_CONSUMED",
-    playerId: command.actorId,
-    cardInstanceId: command.cardInstanceId
-  });
-  if (isSacrifice) resolveNormalGrant(context, command.actorId, "SACRIFICE");
+  for (const cardInstanceId of command.cardInstanceIds) {
+    emit(context, {
+      type: "CARD_CONSUMED",
+      playerId: command.actorId,
+      cardInstanceId
+    });
+  }
+  if (isSacrifice) {
+    for (let index = 0; index < command.cardInstanceIds.length; index += 1) {
+      resolveNormalGrant(context, command.actorId, "SACRIFICE");
+    }
+  }
   finishTurn(context, command.actorId);
   return null;
 }
@@ -4547,6 +4575,7 @@ function handleReaction(
     ? "PHYSICAL"
     : pending.attack.element;
   let totalDefense = 0;
+  const defenseValues: number[] = [];
   for (const { definition } of cards) {
     const defense = instructionsOfKind(definition, "DEFENSE")[0];
     const reactionEffect = reactionEffectFor(
@@ -4577,7 +4606,9 @@ function handleReaction(
         "A selected card cannot defend this attack"
       );
     }
-    if (canDefend) totalDefense += defense.amount;
+    const value = canDefend ? defense.amount : 0;
+    defenseValues.push(value);
+    totalDefense += value;
   }
   for (const { definition } of learnedDefinitions) {
     const reactionEffect = reactionEffectFor(
@@ -4652,7 +4683,8 @@ function handleReaction(
     defenseLearnedMiracleDefinitionIds: learnedDefinitions.map(
       ({ definition }) => definition.cardDefinitionId
     ),
-    defensePower: totalDefense
+    defensePower: totalDefense,
+    defenseValues: [...defenseValues, ...learnedDefinitions.map(() => 0)]
   });
   if (filtersAttackElement && pending.attack.element !== "PHYSICAL") {
     emit(context, {

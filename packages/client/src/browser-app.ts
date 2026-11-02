@@ -661,7 +661,8 @@ export function mountGoodFieldBrowserApp(
 
   const showOnlineBattle = (
     snapshot: GameViewState,
-    activeCredential: OnlineBrowserCredential
+    activeCredential: OnlineBrowserCredential,
+    hiddenBrawl = false
   ): void => {
     stopBattle();
     credential = null;
@@ -681,8 +682,28 @@ export function mountGoodFieldBrowserApp(
       battleRoot,
       snapshot,
       initialUiState(),
-      { exitHref: "#online-lobby" },
       {
+        exitHref: "#online-lobby",
+        ...(hiddenBrawl ? { modeLabel: "隠れ乱闘", exitAction: true } : {})
+      },
+      {
+        onExit() {
+          const current = onlineCredential;
+          if (!current) return;
+          void onlineTransport.leave(current.roomId, current.csrfToken)
+            .then(() => {
+              setResumeCredential(null);
+              showStart();
+            })
+            .catch((error: unknown) => {
+              renderNotice(
+                error instanceof Error
+                  ? error.message
+                  : "切断できませんでした。",
+                "error"
+              );
+            });
+        },
         onCommand(command) {
           const current = onlineCredential;
           if (!current?.matchId) return;
@@ -761,10 +782,11 @@ export function mountGoodFieldBrowserApp(
       onStarted(snapshot, matchId) {
         const current = onlineCredential;
         if (!current) return;
-        showOnlineBattle(snapshot, {
-          ...current,
-          matchId
-        });
+        showOnlineBattle(
+          snapshot,
+          { ...current, matchId },
+          admission.room.accessMode === "PASSPHRASE"
+        );
       },
       onLeave() {
         showStart();
@@ -812,7 +834,8 @@ export function mountGoodFieldBrowserApp(
       if (admission.snapshot && admission.room.matchId) {
         showOnlineBattle(
           admission.snapshot,
-          admissionCredential(admission, resume)
+          admissionCredential(admission, resume),
+          admission.room.accessMode === "PASSPHRASE"
         );
       } else {
         showOnlineLobby(admission, resume);
@@ -1383,10 +1406,11 @@ export function mountGoodFieldBrowserApp(
         const room = await onlineTransport.view(storedOnline.roomId);
         if (room.status === "STARTED" && room.matchId) {
           const snapshot = await onlineTransport.match(room.roomId);
-          showOnlineBattle(snapshot, {
-            ...storedOnline,
-            matchId: room.matchId
-          });
+          showOnlineBattle(
+            snapshot,
+            { ...storedOnline, matchId: room.matchId },
+            room.accessMode === "PASSPHRASE"
+          );
         } else {
           showOnlineLobby({
             room,
@@ -1415,7 +1439,8 @@ export function mountGoodFieldBrowserApp(
             if (admission.snapshot && admission.room.matchId) {
               showOnlineBattle(
                 admission.snapshot,
-                admissionCredential(admission, storedOnline)
+                admissionCredential(admission, storedOnline),
+                admission.room.accessMode === "PASSPHRASE"
               );
             } else {
               showOnlineLobby(admission, storedOnline);
