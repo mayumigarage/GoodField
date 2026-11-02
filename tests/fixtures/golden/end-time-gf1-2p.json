@@ -5054,7 +5054,8 @@
           "FLASH": true
         },
         "guardian": null,
-        "disconnected": false
+        "disconnected": false,
+        "lastMiracleCardDefinitionId": "ice"
       },
       "player-2": {
         "playerId": "player-2",
@@ -5121,7 +5122,8 @@
         ],
         "calamities": {},
         "guardian": null,
-        "disconnected": false
+        "disconnected": false,
+        "lastMiracleCardDefinitionId": "big-tree"
       }
     },
     "pendingAction": null,

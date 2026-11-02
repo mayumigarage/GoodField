@@ -3746,6 +3746,8 @@
       "actorId": "player-2",
       "targetPlayerId": "player-3",
       "offeredCardInstanceId": "golden-end-time-gf1-4p:card:55",
+      "offeredCardDefinitionId": "turbulence",
+      "dreamRevealed": false,
       "price": 0,
       "canAfford": true,
       "inputDeadlineAt": null,
@@ -3753,8 +3755,7 @@
       "revision": 83,
       "occurredAt": "2026-07-26T00:00:00.000Z",
       "visibility": {
-        "scope": "PLAYER",
-        "playerId": "player-2"
+        "scope": "PUBLIC"
       }
     },
     {
@@ -13525,7 +13526,8 @@
           "DARK_CLOUD": true
         },
         "guardian": null,
-        "disconnected": false
+        "disconnected": false,
+        "lastMiracleCardDefinitionId": "heaven-wind"
       },
       "player-2": {
         "playerId": "player-2",
@@ -13638,7 +13640,8 @@
           "HEAVEN_SICKNESS": true
         },
         "guardian": null,
-        "disconnected": false
+        "disconnected": false,
+        "lastMiracleCardDefinitionId": "dark-cloud"
       },
       "player-4": {
         "playerId": "player-4",
@@ -13695,7 +13698,8 @@
         ],
         "calamities": {},
         "guardian": null,
-        "disconnected": false
+        "disconnected": false,
+        "lastMiracleCardDefinitionId": "dark-cloud"
       }
     },
     "pendingAction": null,
@@ -15381,6 +15385,8 @@
             "actorId": "player-2",
             "targetPlayerId": "player-3",
             "offeredCardInstanceId": "golden-end-time-gf1-4p:card:55",
+            "offeredCardDefinitionId": "turbulence",
+            "dreamRevealed": false,
             "price": 0,
             "canAfford": true,
             "inputDeadlineAt": null,
@@ -15388,8 +15394,7 @@
             "revision": 83,
             "occurredAt": "2026-07-26T00:00:00.000Z",
             "visibility": {
-              "scope": "PLAYER",
-              "playerId": "player-2"
+              "scope": "PUBLIC"
             }
           }
         ]

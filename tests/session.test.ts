@@ -248,7 +248,7 @@ test("online trade confirmation timeout is accepted through the CPU command path
   );
 });
 
-test("reconnection changes only connection state and does not restore human control", () => {
+test("reconnection restores human control of a timed-out seat", () => {
   const original = onlineMatch();
   const actorId = original.activePlayerId;
   assert.ok(actorId);
@@ -269,7 +269,7 @@ test("reconnection changes only connection state and does not restore human cont
   );
   assert.equal(reconnected.events[0]?.type, "PLAYER_CONNECTION_CHANGED");
   assert.equal(reconnected.state.players[actorId]?.disconnected, false);
-  assert.equal(reconnected.state.players[actorId]?.controller, "CPU");
+  assert.equal(reconnected.state.players[actorId]?.controller, "HUMAN");
 
   const repeated = setPlayerConnectionState(
     reconnected.state,
@@ -282,7 +282,6 @@ test("reconnection changes only connection state and does not restore human cont
 
   const view = projectGameView(reconnected.state, actorId);
   const ui = synchronizeUiState(initialUiState(), view);
-  assert.equal(ui.mode, "WAITING");
   assert.equal(ui.inputDeadlineAt, reconnected.state.inputDeadlineAt);
 });
 

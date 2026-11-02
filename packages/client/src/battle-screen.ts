@@ -36,10 +36,10 @@ import {
   advanceUiClock,
   defenseCardStatus,
   defenseMiracleStatus,
+  INPUT_DEADLINE_TOTAL_MS,
   inputDeadlineRemainingSeconds,
   isHumanInputMode,
   learnedMiracleStatus,
-  lockForCommand,
   prepareHandActionSubmission,
   prepareBuyConfirmation,
   prepareDeclareActionSubmission,
@@ -91,6 +91,14 @@ const CALAMITY_LABELS: Readonly<Record<Calamity, string>> = {
   DREAM: "夢",
   DARK_CLOUD: "暗雲"
 };
+
+const CALAMITY_SLOTS: readonly (readonly Calamity[])[] = [
+  ["DARK_CLOUD"],
+  ["FOG"],
+  ["DREAM"],
+  ["FLASH"],
+  ["COLD", "FEVER", "HELL_SICKNESS", "HEAVEN_SICKNESS"]
+];
 
 const UI_MODE_LABELS: Readonly<Record<UiMode, string>> = {
   MATCH_SETUP: "対戦準備中",
@@ -191,10 +199,36 @@ function renderCardArt(
   >`;
 }
 
+// No dedicated guardian portraits ship yet, so each guardian is shown with the
+// art of its first action card.
+function guardianPortraitId(guardianName: string): string | null {
+  const marker = `-${guardianName}-`;
+  const matches = [...CARD_IMAGE_IDS]
+    .filter((id) => id.startsWith("guardian-action-") && id.includes(marker))
+    .sort();
+  return matches[0] ?? null;
+}
+
+function renderGuardianChip(
+  player: PlayerPublicView,
+  introStyle: string | null
+): string {
+  const guardian = player.guardian;
+  if (!guardian) return "";
+  const portraitId = guardianPortraitId(guardian.guardianName);
+  const art = portraitId
+    ? renderCardArt(portraitId, "♜", "gf-player__guardian-art")
+    : '<span class="gf-player__guardian-art" aria-hidden="true">♜</span>';
+  return `<span
+      class="gf-player__guardian"
+      aria-label="守護神 ${escapeHtml(guardian.guardianName)}"
+      ${introStyle === null ? "" : `data-intro="true" style="${introStyle}"`}
+    >${art}<span class="gf-player__guardian-name">${escapeHtml(guardian.guardianName)}</span></span>`;
+}
+
 function renderStatusPills(player: PlayerPublicView): string {
   const statuses: string[] = [];
   if (!player.alive) statuses.push("昇天");
-  if (player.controller === "CPU") statuses.push("CPU代行");
   if (player.connectionState === "DISCONNECTED") statuses.push("切断");
   if (player.guardian) statuses.push(player.guardian.guardianName);
   statuses.push(
@@ -214,6 +248,31 @@ function renderStatusPills(player: PlayerPublicView): string {
         `<span class="gf-status-pill">${escapeHtml(status)}</span>`
     )
     .join("");
+}
+
+function renderNameCalamities(player: PlayerPublicView): string {
+  const active = (Object.keys(player.calamities) as Calamity[]).filter(
+    (calamity) => player.calamities[calamity] === true
+  );
+  if (active.length === 0) return "";
+  // Each slot has a fixed column; the four diseases share the last one.
+  const slots = CALAMITY_SLOTS.map((members, slot) => {
+    const calamity = members.find((member) => active.includes(member));
+    return calamity === undefined
+      ? `<span class="gf-calamity-slot" data-slot="${slot}"></span>`
+      : `<span class="gf-calamity-slot" data-slot="${slot}"><span class="gf-calamity-chip" data-calamity="${calamity}">${escapeHtml(CALAMITY_LABELS[calamity])}</span></span>`;
+  });
+  return `<span class="gf-player__calamities" aria-label="災い">${slots.join("")}</span>`;
+}
+
+// Full-width characters count double so long names shrink to fit the name column.
+function nameSizeTier(name: string): number {
+  let units = 0;
+  for (const char of name) units += (char.codePointAt(0) ?? 0) > 0xff ? 2 : 1;
+  if (units <= 13) return 0;
+  if (units <= 16) return 1;
+  if (units <= 19) return 2;
+  return 3;
 }
 
 function renderPlayerMarkers(
@@ -241,12 +300,28 @@ function renderPlayerMarkers(
     : "";
 }
 
+function renderCastMiracle(player: PlayerPublicView): string {
+  const definitionId = player.lastMiracleCardDefinitionId ?? null;
+  if (definitionId === null) {
+    return '<div class="gf-cast-miracle" data-empty="true" aria-label="起こした奇跡なし"></div>';
+  }
+  const text = cardText(definitionId);
+  const definition = CARD_DEFINITIONS_BY_ID.get(definitionId);
+  return `<div class="gf-cast-miracle" title="${escapeHtml(text.name)}" aria-label="${escapeHtml(`起こした奇跡: ${text.name}`)}">${renderCardArt(
+    definitionId,
+    CARD_CATEGORY_MARKS[definition?.category ?? "MIRACLE"],
+    "gf-cast-miracle__image"
+  )}</div>`;
+}
+
 function renderPlayer(
   player: PlayerPublicView,
   view: GameViewState,
   targetCandidateIds: readonly string[],
   highlightedTargetIds: readonly string[],
-  interactionLocked: boolean
+  interactionLocked: boolean,
+  guardianIntroStyle: string | null = null,
+  showCastMiracles = false
 ): string {
   const active = player.playerId === view.activePlayerId;
   const acting = player.playerId === view.actingPlayerId;
@@ -280,10 +355,17 @@ function renderPlayer(
           <span class="gf-player__seat" aria-label="席 ${player.seatIndex + 1}">
             ${player.seatIndex + 1}
           </span>
-          <h3 class="gf-player__name">${escapeHtml(player.displayName)}</h3>
+          <h3 class="gf-player__name" data-name-size="${nameSizeTier(player.displayName)}">${escapeHtml(player.displayName)}</h3>
+          ${renderGuardianChip(player, guardianIntroStyle)}
+          ${renderNameCalamities(player)}
           <span class="gf-player__state">${escapeHtml(stateLabel)}</span>
         </header>
         ${renderPlayerMarkers(active, acting, targeted, player.alive)}
+        ${
+          showCastMiracles
+            ? renderCastMiracle(player)
+            : ""
+        }
         <dl class="gf-resources" aria-label="公開リソース">
           <div><dt>HP</dt><dd>${player.hp}</dd></div>
           <div><dt>MP</dt><dd>${player.mp}</dd></div>
@@ -308,6 +390,35 @@ function renderPlayer(
         }
       </article>
     </li>`;
+}
+
+// The hand cards are narrow, so the effect line is condensed to a short form
+// such as "50%攻9", "攻15/守10", "反射" or "弾く".
+function shortCardEffect(effect: string): string {
+  const parts = effect
+    .replace(/\s*\([^)]*\)/g, "")
+    .split(/\s*\/\s*/)
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0)
+    .map((part) =>
+      part
+        .replace(/^両替する$/, "両替")
+        .replace(/奇跡を/g, "")
+        .replace(/無属性武器を/g, "無")
+        .replace(/何でもはね返す/g, "全反射")
+        .replace(/をはね返す|はね返す/g, "反射")
+        .replace(/を止める/g, "停止")
+        .replace(/を弾く/g, "弾く")
+        .replace(/止める/g, "停止")
+    );
+  const hitIndex = parts.findIndex((part) => /^命中\d+%$/.test(part));
+  if (hitIndex >= 0) {
+    const hit = (parts[hitIndex] ?? "").replace("命中", "");
+    parts.splice(hitIndex, 1);
+    if (parts.length > 0) parts[0] = `${hit}${parts[0]}`;
+    else parts.push(hit);
+  }
+  return parts.join("/");
 }
 
 function renderCard(
@@ -400,6 +511,7 @@ function renderCard(
   return `
     <li
       class="gf-card"
+      data-card-definition-id="${escapeHtml(card.cardDefinitionId)}"
       data-selected="${String(status.selected || tradeSelected || handActionSelected)}"
       data-card-category="${definition?.category ?? "GOODS"}"
       data-card-element="${definition?.element ?? "PHYSICAL"}"
@@ -423,7 +535,7 @@ function renderCard(
             ? `<span class="gf-card__effect" data-trade-price>${
                 definition?.price === undefined ? "" : `¥${definition.price}`
               }</span>`
-            : `<span class="gf-card__effect">${escapeHtml(text.effect)}</span>`
+            : `<span class="gf-card__effect" title="${escapeHtml(text.effect)}">${escapeHtml(shortCardEffect(text.effect))}</span>`
         }
         ${reason}
       </button>
@@ -450,7 +562,8 @@ function renderConcealedCard(): string {
 function renderMiracle(
   miracle: LearnedMiracleView,
   ui: UiInteractionState,
-  view: GameViewState
+  view: GameViewState,
+  index: number
 ): string {
   const text = cardText(miracle.cardDefinitionId);
   const definition = CARD_DEFINITIONS_BY_ID.get(miracle.cardDefinitionId);
@@ -467,6 +580,8 @@ function renderMiracle(
   return `
     <li
       class="gf-card gf-card--miracle"
+      style="--gf-miracle-slot: ${index}"
+      data-card-definition-id="${escapeHtml(miracle.cardDefinitionId)}"
       data-selected="${String(status.selected)}"
       data-card-category="${definition?.category ?? "MIRACLE"}"
       data-card-element="${definition?.element ?? "LIGHT"}"
@@ -578,6 +693,11 @@ type AttackPresentationScene = {
   hitRoll: HitRolledEvent | null;
   damage: DamageAppliedEvent | null;
   calamity: AttackCalamityEvent | null;
+  // Set while the defender's card is held under the "deflected" notice.
+  deflectNotice: Extract<DomainEvent, { type: "ATTACK_REDIRECTED" }> | null;
+  // True while the attack card slides over to the redirected actor's side.
+  redirectMove: boolean;
+  reactionDepth: number;
   stageKind: PresentationStageKind;
   stageIndex: number;
 };
@@ -612,11 +732,28 @@ type TradePaymentEvent = Extract<
 type TradeTransferEvent = Extract<DomainEvent, { type: "CARD_TRANSFERRED" }>;
 
 type TradePresentationScene = {
-  kind: "SELL" | "BUY";
+  kind: "SELL" | "BUY" | "GUARDIAN";
   stage: TradePresentationStage;
-  cardDefinitionId: string;
+  // A guardian theft moves only the coin, towards the guardian's portrait.
+  cardDefinitionId: string | null;
+  guardianPortraitId: string | null;
   price: number;
+  leftPlayerId: string;
+  rightPlayerId: string;
+  rightLabel: string | null;
   elapsedMs: number;
+};
+
+type TradeOfferedEvent = Extract<DomainEvent, { type: "TRADE_OFFERED" }>;
+
+// A buy offer, shown to every viewer while the buyer decides and while
+// 「買わない」 or 「貧乏」 closes it.
+type TradeOfferScene = {
+  actorId: string;
+  targetPlayerId: string;
+  cardDefinitionId: string;
+  notice: "DECLINED" | "INSUFFICIENT_RESOURCES" | null;
+  dreamRevealed: boolean;
 };
 
 function actionActivityLabel(actionType: GameCommand["type"]): string {
@@ -859,12 +996,17 @@ function presentationAttackScene(
             : false
       ) ?? null;
   if (!attackEvent) return null;
+  const deflectNotice =
+    activeEvent.type === "ATTACK_REDIRECTED" && active.stageIndex === 0
+      ? activeEvent
+      : null;
   const redirect = [...events]
     .reverse()
     .find(
       (event) =>
         event.type === "ATTACK_REDIRECTED" &&
-        event.attackId === attackEvent.attack.attackId
+        event.attackId === attackEvent.attack.attackId &&
+        event.eventSeq !== deflectNotice?.eventSeq
     );
   const reaction =
     [...events]
@@ -872,7 +1014,10 @@ function presentationAttackScene(
       .find(
         (event): event is ReactionDeclaredEvent =>
           event.type === "REACTION_DECLARED" &&
-          (directReactionId
+          (deflectNotice
+            ? event.playerId === deflectNotice.actorId &&
+              event.eventSeq < deflectNotice.eventSeq
+            : directReactionId
             ? event.reactionId === directReactionId
             : event.reactionId === attackEvent.attack.reactionId ||
               events.some(
@@ -916,6 +1061,13 @@ function presentationAttackScene(
       activeEvent.type === "CALAMITY_WORSENED"
         ? activeEvent
         : null,
+    deflectNotice,
+    redirectMove:
+      activeEvent.type === "ATTACK_REDIRECTED" && active.stageIndex === 1,
+    reactionDepth:
+      redirect?.type === "ATTACK_REDIRECTED"
+        ? redirect.reactionDepth
+        : attackEvent.attack.reactionDepth,
     stageKind: active.kind,
     stageIndex: active.stageIndex
   };
@@ -998,6 +1150,15 @@ function presentationGuardianAction(
     : null;
 }
 
+function presentationGuardianAssigned(
+  presentation: PresentationQueueState | null
+): Extract<DomainEvent, { type: "GUARDIAN_ASSIGNED" }> | null {
+  const active = presentation?.activeStep?.step;
+  return active?.kind === "GUARDIAN" && active.event.type === "GUARDIAN_ASSIGNED"
+    ? active.event
+    : null;
+}
+
 function presentationResourceEffect(
   presentation: PresentationQueueState | null
 ): ResourceChangedEvent | null {
@@ -1025,6 +1186,39 @@ function heldTradePayment(
     tradePresentationStage(step) !== "SETTLE"
     ? step.event
     : null;
+}
+
+// A guardian theft reaches the player list when its coin arrives, and a
+// phenomenon's money collection once its notice ends.
+function heldMoneyDeltas(
+  presentation: PresentationQueueState | null
+): Map<string, number> {
+  const held = new Map<string, number>();
+  if (!presentation) return held;
+  const steps = [
+    ...(presentation.activeStep ? [presentation.activeStep.step] : []),
+    ...presentation.pendingSteps
+  ];
+  const seen = new Set<number>();
+  for (const step of steps) {
+    const { event } = step;
+    if (
+      seen.has(event.eventSeq) ||
+      event.type !== "RESOURCE_CHANGED" ||
+      event.resource !== "MONEY"
+    ) {
+      continue;
+    }
+    const heldUntilSettled =
+      event.reason === "GUARDIAN" &&
+      step.kind === "TRADE" &&
+      tradePresentationStage(step) !== "SETTLE";
+    if (heldUntilSettled || event.reason === "PHENOMENON") {
+      seen.add(event.eventSeq);
+      held.set(event.playerId, (held.get(event.playerId) ?? 0) + event.delta);
+    }
+  }
+  return held;
 }
 
 function withHeldTradeResources(
@@ -1095,26 +1289,107 @@ function transferAfterEvent(
   );
 }
 
+function guardianHostBefore(
+  presentation: PresentationQueueState,
+  eventSeq: number
+): string | null {
+  const action = [...presentation.recentEvents]
+    .reverse()
+    .find(
+      (event): event is GuardianActionEvent =>
+        event.type === "GUARDIAN_ACTION_SELECTED" && event.eventSeq < eventSeq
+    );
+  return action?.playerId ?? null;
+}
+
 function presentationTrade(
+  view: GameViewState,
   presentation: PresentationQueueState | null,
   nowMs: number
 ): TradePresentationScene | null {
   const active = presentation?.activeStep;
-  if (
-    !active ||
-    active.step.kind !== "TRADE" ||
-    active.step.event.type !== "TRADE_PAYMENT_COLLECTED"
-  ) {
-    return null;
+  if (!active || active.step.kind !== "TRADE") return null;
+  const { event } = active.step;
+  const stage = tradePresentationStage(active.step);
+  const elapsedMs = Math.max(0, nowMs - active.startedAtMs);
+  if (event.type === "RESOURCE_CHANGED") {
+    const hostId = guardianHostBefore(presentation, event.eventSeq);
+    if (!hostId) return null;
+    const guardianName =
+      playerById(view, hostId)?.guardian?.guardianName ?? null;
+    return {
+      kind: "GUARDIAN",
+      stage,
+      cardDefinitionId: null,
+      guardianPortraitId:
+        guardianName === null ? null : guardianPortraitId(guardianName),
+      price: -event.delta,
+      leftPlayerId: event.playerId,
+      rightPlayerId: hostId,
+      rightLabel: guardianName ?? "守護神",
+      elapsedMs
+    };
   }
+  if (event.type !== "TRADE_PAYMENT_COLLECTED") return null;
   const transfer = transferAfterEvent(presentation, active.step.eventSeq);
   if (!transfer) return null;
+  const kind = active.step.stageCount > 3 ? "BUY" : "SELL";
+  // The buyer pays from the left lane; a sale's seller stays on the left and
+  // the coin comes in from the (possibly bounced) payer on the right.
   return {
-    kind: active.step.stageCount > 2 ? "BUY" : "SELL",
-    stage: tradePresentationStage(active.step),
+    kind,
+    stage,
     cardDefinitionId: transfer.card.cardDefinitionId,
-    price: active.step.event.price,
-    elapsedMs: Math.max(0, nowMs - active.startedAtMs)
+    guardianPortraitId: null,
+    price: event.price,
+    leftPlayerId:
+      kind === "BUY" ? event.payerPlayerId : event.recipientPlayerId,
+    rightPlayerId:
+      kind === "BUY" ? event.recipientPlayerId : event.payerPlayerId,
+    rightLabel: null,
+    elapsedMs
+  };
+}
+
+function presentationTradeOffer(
+  view: GameViewState,
+  presentation: PresentationQueueState | null
+): TradeOfferScene | null {
+  const active = presentation?.activeStep?.step;
+  if (!active) {
+    const pending = view.pendingTrade;
+    return pending
+      ? {
+          actorId: pending.actorId,
+          targetPlayerId: pending.targetPlayerId,
+          cardDefinitionId: pending.offeredCardDefinitionId,
+          notice: null,
+          dreamRevealed: false
+        }
+      : null;
+  }
+  if (active.kind !== "TRADE") return null;
+  const { event } = active;
+  const offer =
+    event.type === "TRADE_OFFERED"
+      ? event
+      : event.type === "TRADE_RESOLVED" && event.resolution !== "ACCEPTED"
+        ? presentation.recentEvents.find(
+            (candidate): candidate is TradeOfferedEvent =>
+              candidate.type === "TRADE_OFFERED" &&
+              candidate.tradeId === event.tradeId
+          ) ?? null
+        : null;
+  if (!offer) return null;
+  return {
+    actorId: offer.actorId,
+    targetPlayerId: offer.targetPlayerId,
+    cardDefinitionId: offer.offeredCardDefinitionId,
+    notice:
+      event.type === "TRADE_RESOLVED" && event.resolution !== "ACCEPTED"
+        ? event.resolution
+        : null,
+    dreamRevealed: event.type === "TRADE_OFFERED" && offer.dreamRevealed
   };
 }
 
@@ -1158,29 +1433,66 @@ function presentationTradeFinished(
   return latest?.type === "TRADE_RESOLVED";
 }
 
-function renderTradeSwap(
-  kind: TradePresentationScene["kind"],
-  stage: TradePresentationStage,
-  cardDefinitionId: string,
-  price: number | null,
-  elapsedMs: number
-): string {
-  const moving = stage === "SWAP" || stage === "SETTLE";
+function renderTradeSwap(scene: TradePresentationScene): string {
+  const { kind, stage } = scene;
+  const showsCoin =
+    stage === "PRICE" || stage === "SWAP" || stage === "SETTLE";
   return `
     <div
       class="gf-trade-swap"
       data-trade-kind="${kind}"
       data-trade-stage="${stage}"
-      style="--gf-trade-delay: ${-elapsedMs}ms"
+      style="--gf-trade-delay: ${-scene.elapsedMs}ms"
     >
-      ${renderFieldCard(cardDefinitionId, "gf-trade-swap__product")}
       ${
-        moving && price !== null
-          ? `<strong class="gf-trade-swap__coin">¥${price}</strong>`
+        scene.cardDefinitionId === null
+          ? ""
+          : renderFieldCard(scene.cardDefinitionId, "gf-trade-swap__product")
+      }
+      ${
+        kind === "GUARDIAN"
+          ? scene.guardianPortraitId
+            ? renderCardArt(scene.guardianPortraitId, "♜", "gf-trade-swap__guardian")
+            : '<span class="gf-trade-swap__guardian" aria-hidden="true">♜</span>'
           : ""
       }
+      ${showsCoin ? `<strong class="gf-trade-swap__coin">¥${scene.price}</strong>` : ""}
       ${stage === "STAMP" ? '<strong class="gf-trade-swap__stamp" role="status">買う</strong>' : ""}
       ${kind === "SELL" ? '<strong class="gf-action__forgive gf-action__forgive--trade" role="status">許す</strong>' : ""}
+    </div>`;
+}
+
+const TRADE_OFFER_NOTICES = {
+  DECLINED: "買わない",
+  INSUFFICIENT_RESOURCES: "貧乏"
+} as const;
+
+function renderTradeOffer(offer: TradeOfferScene, effectDelayStyle: string): string {
+  return `
+    <div class="gf-trade-swap" data-trade-kind="BUY" data-trade-stage="OFFER">
+      ${renderFieldCard(offer.cardDefinitionId, "gf-trade-swap__product")}
+      ${
+        offer.dreamRevealed
+          ? `<div
+              class="gf-action__result"
+              data-result="trade-notice"
+              data-placement="target"
+              style="${effectDelayStyle}"
+              role="status"
+            ><strong>夢が覚めた</strong></div>`
+          : ""
+      }
+      ${
+        offer.notice
+          ? `<div
+              class="gf-action__result"
+              data-result="trade-notice"
+              data-placement="actor"
+              style="${effectDelayStyle}"
+              role="status"
+            ><strong>${TRADE_OFFER_NOTICES[offer.notice]}</strong></div>`
+          : ""
+      }
     </div>`;
 }
 
@@ -1221,9 +1533,10 @@ function renderActionRegion(
   const presentedAttack = queuedPresentedAttack;
   const locksPresentedAttack =
     presentedAttack !== null &&
-    ["HIT_RESULT", "REACTION", "DAMAGE_RESULT", "HP_UPDATE", "CALAMITY"].includes(
-      presentedAttack.stageKind
-    );
+    (presentedAttack.redirectMove ||
+      ["HIT_RESULT", "REACTION", "DAMAGE_RESULT", "HP_UPDATE", "CALAMITY"].includes(
+        presentedAttack.stageKind
+      ));
   const activeEvent = presentation?.activeStep?.step.event;
   const pendingMatchesActivePresentation =
     pendingAttack !== null &&
@@ -1251,11 +1564,8 @@ function renderActionRegion(
   const showsExchange = exchangeScene !== null || exchangeDraft !== null;
   const tradeDraft = activeTradeDraft(view, ui);
   const handActionDraft = activeHandActionDraft(view, ui);
-  const tradeScene = presentationTrade(presentation, nowMs);
-  const offeredTrade =
-    ui.mode === "CONFIRMING_TRADE"
-      ? view.self?.tradeConfirmation ?? null
-      : null;
+  const tradeScene = presentationTrade(view, presentation, nowMs);
+  const offeredTrade = presentationTradeOffer(view, presentation);
   const saleProductDefinitionId = activeSaleProductDefinitionId(
     view,
     presentation
@@ -1276,6 +1586,8 @@ function renderActionRegion(
       : null;
   const recentCardUse = recentCardUseCandidate;
   const actorId =
+    tradeScene?.leftPlayerId ??
+    offeredTrade?.actorId ??
     (locksPresentedAttack ? presentedAttack.actorId : null) ??
     authoritativePendingAttack?.actorId ??
     presentedAttack?.actorId ??
@@ -1284,6 +1596,8 @@ function renderActionRegion(
     pendingAttack?.actorId ??
     view.actingPlayerId;
   const selectedTargetId =
+    tradeScene?.rightPlayerId ??
+    offeredTrade?.targetPlayerId ??
     (locksPresentedAttack ? presentedAttack.targetPlayerId : null) ??
     authoritativePendingAttack?.targetPlayerId ??
     presentedAttack?.targetPlayerId ??
@@ -1315,7 +1629,8 @@ function renderActionRegion(
                 ? tradeDraftDefinitionIds(view, tradeDraft)
                 : selectedActionDefinitionIds(view, ui);
   const actionCardDefinitionIds = revealStagedCards(
-    tradeScene?.kind === "BUY" && tradeScene.stage !== "OFFER"
+    (tradeScene?.kind === "BUY" && tradeScene.stage !== "OFFER") ||
+      tradeScene?.kind === "GUARDIAN"
       ? []
       : saleProductDefinitionId !== null &&
           presentedCardDefinitionIds.includes("sell")
@@ -1403,6 +1718,15 @@ function renderActionRegion(
     presentedAttack?.attackEvent.attack ??
     recentCardUse?.attack ??
     pendingAttack;
+  // Every render rebuilds the DOM, so overlays resume from the elapsed step time
+  // instead of replaying their entrance.
+  const effectDelayStyle = presentationEffectDelayStyle(presentation, nowMs);
+  // The attacker's cards always sit in the left column; defense and reflect
+  // cards take the right one. A deflected attack slides back in from the right.
+  const attackSide = "left";
+  const redirectMoveStyle = presentedAttack?.redirectMove
+    ? `${effectDelayStyle}; --gf-redirect-ms: ${presentation?.profile.redirectMoveMs ?? 0}ms`
+    : "";
   const direction = actor && target
     ? `${actor.displayName} から ${target.displayName}`
     : actor
@@ -1420,9 +1744,6 @@ function renderActionRegion(
   );
   const displayedResourceEffect =
     activeResourceEffect ?? recentCardUse?.recovery ?? null;
-  // Every render rebuilds the DOM, so overlays resume from the elapsed step time
-  // instead of replaying their entrance.
-  const effectDelayStyle = presentationEffectDelayStyle(presentation, nowMs);
   return `
     <section
       class="gf-panel gf-action"
@@ -1464,7 +1785,7 @@ function renderActionRegion(
                 showsExchange
                   ? ""
                   : `<span class="gf-action__arrow">➜</span>
-              <span class="gf-action__target">${escapeHtml(target?.displayName ?? "対象を選択")}</span>`
+              <span class="gf-action__target">${escapeHtml(tradeScene?.rightLabel ?? target?.displayName ?? "対象を選択")}</span>`
               }
             </div>`
           : ""
@@ -1484,9 +1805,16 @@ function renderActionRegion(
             </p>`
           : ""
       }
-      <div class="gf-action__content" aria-label="攻防プレビュー">
+      <div
+        class="gf-action__content"
+        data-attack-side="${attackSide}"
+        aria-label="攻防プレビュー"
+      >
         <div
           class="gf-action__stack gf-action__stack--attack"
+          ${presentedAttack?.redirectMove ? 'data-redirect-move="true"' : ""}
+          style="${redirectMoveStyle}"
+          ${actionCardDefinitionIds.length > 3 ? 'data-stacked="true"' : ""}
           data-card-lane="action"
           aria-label="使用したカード"
         >
@@ -1533,6 +1861,7 @@ function renderActionRegion(
         <div
           class="gf-action__stack gf-action__stack--defense"
           data-card-lane="defense"
+          ${selectedDefenseDefinitionIds.length > 3 ? 'data-stacked="true"' : ""}
           aria-label="防御に使用したカード"
         >
           ${selectedDefenseDefinitionIds
@@ -1556,22 +1885,25 @@ function renderActionRegion(
         ${exchangeScene ? renderExchangeResult(exchangeScene) : ""}
         ${
           tradeScene
-            ? renderTradeSwap(
-                tradeScene.kind,
-                tradeScene.stage,
-                tradeScene.cardDefinitionId,
-                tradeScene.price,
-                tradeScene.elapsedMs
-              )
+            ? renderTradeSwap(tradeScene)
             : offeredTrade
-              ? renderTradeSwap(
-                  "BUY",
-                  "OFFER",
-                  offeredTrade.offeredCard.cardDefinitionId,
-                  null,
-                  0
-                )
+              ? renderTradeOffer(offeredTrade, effectDelayStyle)
               : ""
+        }
+        ${
+          presentedAttack?.deflectNotice
+            ? `<div
+                class="gf-action__result"
+                data-result="deflect"
+                data-placement="defense-${attackSide === "left" ? "right" : "left"}"
+                style="${effectDelayStyle}"
+                role="status"
+              ><strong>${
+                presentedAttack.deflectNotice.redirectType === "REFLECT"
+                  ? "弾いた"
+                  : "跳ね返した"
+              }</strong></div>`
+            : ""
         }
         ${
           presentedAttack?.stageKind === "HIT_RESULT" &&
@@ -1637,7 +1969,9 @@ function renderActionRegion(
             : ""
         }
       </div>
-      <dl class="gf-action__summary" aria-label="選択中の行動値">
+      <dl class="gf-action__summary" aria-label="選択中の行動値" data-element="${
+        displayedAttack?.element ?? preview.element ?? "NONE"
+      }">
         <div>
           <dt>合計攻撃</dt>
           <dd>${attackPower ?? "—"}</dd>
@@ -1733,22 +2067,19 @@ function renderResponseRegion(
   } else if (ui.mode === "CONFIRMING_TRADE" && trade && payment) {
     const offeredText = cardText(trade.offeredCard.cardDefinitionId);
     const seller = playerById(view, trade.targetPlayerId);
+    // The offered card itself is shown on the field, so only the buttons are
+    // visible here; the subject and payment stay for screen readers.
     content = `
       <article class="gf-trade-offer" data-trade-id="${escapeHtml(trade.tradeId)}">
         <p class="gf-response__subject">
-          ${escapeHtml(seller?.displayName ?? "相手")}からの商品
+          ${escapeHtml(seller?.displayName ?? "相手")}からの商品 ${escapeHtml(offeredText.name)}
         </p>
-        <strong class="gf-trade-offer__name">${escapeHtml(offeredText.name)}</strong>
-        <p class="gf-trade-offer__effect">${escapeHtml(offeredText.effect)}</p>
         <dl class="gf-response__summary" aria-label="購入時の支払い見込み">
           <div><dt>価格</dt><dd>¥${payment.price}</dd></div>
           <div><dt>所持金</dt><dd>${payment.money}</dd></div>
           <div><dt>MP</dt><dd>${payment.mp}</dd></div>
           <div><dt>HP</dt><dd>${payment.hp}</dd></div>
         </dl>
-        <p class="gf-trade-offer__payment">
-          支払い順: 所持金 → MP → HP
-        </p>
         ${
           payment.canAfford
             ? ""
@@ -1794,6 +2125,20 @@ function renderResponseRegion(
       </div>
       <div class="gf-response__content">${content}</div>
     </section>`;
+}
+
+// The result appears once every effect, ascension included, has played; only
+// the closing RESULT beat itself may still be running.
+function presentationHoldsResult(
+  presentation: PresentationQueueState | null
+): boolean {
+  if (!presentation) return false;
+  const blocking = (step: { kind: string }): boolean => step.kind !== "RESULT";
+  return (
+    (presentation.activeStep !== null &&
+      blocking(presentation.activeStep.step)) ||
+    presentation.pendingSteps.some(blocking)
+  );
 }
 
 function renderResultRegion(
@@ -1857,46 +2202,30 @@ function renderInputStatus(
 ): string {
   const selfPlayer = playerById(view, view.self?.playerId ?? null);
   if (!selfPlayer) return "";
-  if (ui.inputDeadlineExpired) {
-    return `
-      <p class="gf-input-status gf-input-status--warning" role="alert">
-        入力期限が切れました。サーバーのCPU代行状態を同期しています。
-      </p>`;
-  }
-  if (selfPlayer.controller === "CPU") {
-    const message =
-      selfPlayer.connectionState === "DISCONNECTED"
-        ? "接続が切れたため、CPUが操作を代行しています。"
-        : "再接続済みですが、操作権はCPUのままです。";
-    return `
-      <p
-        class="gf-input-status gf-input-status--cpu"
-        data-controller-status="CPU"
-        role="status"
-      >${message}</p>`;
-  }
-  if (selfPlayer.connectionState === "DISCONNECTED") {
-    return `
-      <p class="gf-input-status gf-input-status--warning" role="alert">
-        サーバーとの接続が切れています。
-      </p>`;
-  }
+  if (ui.inputDeadlineExpired) return "";
   const remainingSeconds = inputDeadlineRemainingSeconds(ui, nowMs);
   if (remainingSeconds === null || !isHumanInputMode(ui.mode)) return "";
+  const remainingMs = Math.max(
+    0,
+    Date.parse(ui.inputDeadlineAt ?? "") - nowMs
+  );
+  const elapsedMs = Math.min(
+    INPUT_DEADLINE_TOTAL_MS,
+    Math.max(0, INPUT_DEADLINE_TOTAL_MS - remainingMs)
+  );
   return `
-    <p
+    <div
       class="gf-input-status gf-input-status--deadline"
       data-input-deadline="${escapeHtml(ui.inputDeadlineAt ?? "")}"
       data-remaining-seconds="${remainingSeconds}"
       role="timer"
-      aria-live="polite"
+      aria-label="残り ${remainingSeconds}秒"
     >
-      <span>入力期限</span>
-      <time datetime="${escapeHtml(ui.inputDeadlineAt ?? "")}">
-        残り ${remainingSeconds}秒
-      </time>
-      <small>時間切れ後はCPUが代行します</small>
-    </p>`;
+      <span
+        class="gf-input-status__bar"
+        style="--gf-deadline-total: ${INPUT_DEADLINE_TOTAL_MS}ms; --gf-deadline-elapsed: -${Math.round(elapsedMs)}ms"
+      ></span>
+    </div>`;
 }
 
 type AdjustableExchangeResource = "mp" | "money";
@@ -2152,33 +2481,6 @@ function renderExchangeResult(scene: ExchangePresentationScene): string {
     </div>`;
 }
 
-function renderUtilityActions(
-  view: GameViewState,
-  ui: UiInteractionState
-): string {
-  if (
-    !view.self ||
-    ui.mode !== "COMPOSING_ACTION" ||
-    ui.interactionLocked ||
-    ui.inputDeadlineExpired
-  ) {
-    return "";
-  }
-  const actions = view.self.legalActions;
-  const forms: string[] = [];
-  if (actions.some(({ type }) => type === "SURRENDER")) {
-    forms.push(`
-      <form class="gf-utility-action" data-utility-form="SURRENDER" hidden>
-        <button type="button" class="gf-utility-action__close" data-close-utility aria-label="降参画面を閉じる">×</button>
-        <p>この試合を降参します。</p>
-        <button type="submit" class="gf-utility-action__danger">降参する</button>
-      </form>`);
-  }
-  return forms.length === 0
-    ? ""
-    : `<div class="gf-utility-actions">${forms.join("")}</div>`;
-}
-
 function renderHandActionToggle(
   view: GameViewState,
   ui: UiInteractionState
@@ -2203,8 +2505,12 @@ function renderHandActionToggle(
     class="gf-hand-action-toggle"
     data-toggle-hand-action="${action.type}"
     aria-pressed="${String(active)}"
+    aria-label="${label}"
     title="${active ? `${label}カードを選択中` : `${label}モードに切り替える`}"
-  >${label}</button>`;
+  ><svg class="gf-hand-action-toggle__icon" viewBox="0 0 40 40" aria-hidden="true">
+      <rect x="11" y="7" width="18" height="26" />
+      <path d="M11 15.67h18M11 24.33h18" />
+    </svg></button>`;
 }
 
 const RESOURCE_LABELS = {
@@ -2264,6 +2570,9 @@ function presentationCopy(
         detail: `${eventPlayerName(view, event.playerId)}から${event.removedCount}個を破棄しました`
       };
     case "RESOURCE_CHANGED": {
+      if (event.resource === "MONEY" && event.reason === "PHENOMENON") {
+        return { eyebrow: "Phenomenon", title: "全員円没収", detail: "" };
+      }
       const sign = event.delta > 0 ? "+" : "";
       const reasonLabel =
         event.reason === "DEMON"
@@ -2301,13 +2610,14 @@ function presentationCopy(
         detail: "宿主のHP減少により去りました"
       };
     case "GUARDIAN_CHECKED": {
+      if (!event.acted) return null;
       const guardian =
         playerById(view, event.playerId)?.guardian?.guardianName ??
         "守護神";
       return {
         eyebrow: "Guardian",
         title: `${eventPlayerName(view, event.playerId)}の${guardian}`,
-        detail: event.acted ? "行動します" : "今回は行動しません"
+        detail: "行動します"
       };
     }
     case "GUARDIAN_ACTION_SELECTED": {
@@ -2330,16 +2640,14 @@ function presentationCopy(
     case "CALAMITY_WORSEN_CHECKED":
       return {
         eyebrow: "Disease",
-        title: `${eventPlayerName(view, event.playerId)}の${CALAMITY_LABELS[event.disease]}`,
-        detail: event.worsened ? "病が悪化します" : "悪化しませんでした"
+        title: CALAMITY_LABELS[event.disease],
+        detail: eventPlayerName(view, event.playerId)
       };
     case "CALAMITY_WORSENED":
       return {
         eyebrow: "Disease",
-        title: `${CALAMITY_LABELS[event.from]}が悪化`,
-        detail: event.to
-          ? `${eventPlayerName(view, event.playerId)}は${CALAMITY_LABELS[event.to]}になりました`
-          : `${eventPlayerName(view, event.playerId)}のHPが0になりました`
+        title: event.to ? CALAMITY_LABELS[event.to] : "HP0",
+        detail: eventPlayerName(view, event.playerId)
       };
     case "CALAMITIES_REMOVED":
       return {
@@ -2373,12 +2681,47 @@ function presentationCopy(
   }
 }
 
+function renderGuardianSummon(
+  presentation: PresentationQueueState,
+  event: Extract<DomainEvent, { type: "GUARDIAN_ASSIGNED" }>
+): string {
+  const portraitId = guardianPortraitId(event.guardian.guardianName);
+  if (!portraitId) return "";
+  const delay = presentationEffectDelayStyle(presentation, Date.now());
+  return `<div
+      class="gf-guardian-summon"
+      data-guardian-summon="${escapeHtml(event.playerId)}"
+      style="--gf-summon-ms: ${presentation.activeStep?.step.durationMs ?? 0}ms; ${delay}"
+      aria-hidden="true"
+    >${renderCardArt(portraitId, "♜", "gf-guardian-summon__art")}</div>`;
+}
+
 export function renderPresentationRegion(
   view: GameViewState,
   presentation: PresentationQueueState | null
 ): string {
   if (!presentation?.activeStep) return "";
+  const summon = presentationGuardianAssigned(presentation);
+  if (summon) {
+    const copy = presentationCopy(view, presentation);
+    return `${renderGuardianSummon(presentation, summon)}
+    <aside
+      class="gf-presentation"
+      data-region="presentation"
+      data-presentation-kind="GUARDIAN"
+      data-event-seq="${presentation.activeStep.step.eventSeq}"
+      data-central="false"
+      role="status"
+      aria-live="assertive"
+      aria-atomic="true"
+    >
+      <p class="gf-presentation__eyebrow">${escapeHtml(copy?.eyebrow ?? "Guardian")}</p>
+      <strong class="gf-presentation__title">${escapeHtml(copy?.title ?? "")}</strong>
+      <p class="gf-presentation__detail">${escapeHtml(copy?.detail ?? "")}</p>
+    </aside>`;
+  }
   if (presentationResourceEffect(presentation)) return "";
+  if (presentation.activeStep.step.kind === "TRADE") return "";
   if (
     presentationAttackScene(presentation) ||
     presentationGuardianAction(presentation)
@@ -2412,7 +2755,9 @@ export function renderBattleScreen(
   ui: UiInteractionState,
   links: BattleScreenLinks = {},
   presentation: PresentationQueueState | null = null,
-  nowMs = Date.now()
+  nowMs = Date.now(),
+  hoveredCardDefinitionId: string | null = null,
+  showCastMiracles = false
 ): string {
   const renderedUi = advanceUiClock(ui, view, nowMs);
   const visiblePresentation = presentation;
@@ -2458,7 +2803,7 @@ export function renderBattleScreen(
       }
     : turnHeldView;
   // A trade reaches the player list when the coin arrives at the recipient.
-  const displayedView = presentedPayment
+  const paymentHeldView = presentedPayment
     ? {
         ...exchangeHeldView,
         players: exchangeHeldView.players.map((player) =>
@@ -2466,6 +2811,19 @@ export function renderBattleScreen(
         )
       }
     : exchangeHeldView;
+  const heldMoney = heldMoneyDeltas(visiblePresentation);
+  const displayedView =
+    heldMoney.size > 0
+      ? {
+          ...paymentHeldView,
+          players: paymentHeldView.players.map((player) => {
+            const delta = heldMoney.get(player.playerId);
+            return delta === undefined
+              ? player
+              : { ...player, money: Math.max(0, player.money - delta) };
+          })
+        }
+      : paymentHeldView;
   const activePlayer = playerById(
     displayedView,
     displayedView.activePlayerId
@@ -2521,6 +2879,7 @@ export function renderBattleScreen(
         : hasLocalActionSelection || tradeDraft
           ? displayedUi.selectedTargetIds
           : view.targetPlayerIds;
+  const guardianIntro = presentationGuardianAssigned(visiblePresentation);
   const playerMarkup = [...displayedView.players]
     .sort((left, right) => left.seatIndex - right.seatIndex)
     .map((player) =>
@@ -2529,7 +2888,11 @@ export function renderBattleScreen(
         displayedView,
         targetCandidateIds,
         highlightedTargetIds,
-        displayedUi.interactionLocked
+        displayedUi.interactionLocked,
+        player.playerId === guardianIntro?.playerId
+          ? `--gf-summon-ms: ${visiblePresentation?.activeStep?.step.durationMs ?? 0}ms; ${presentationEffectDelayStyle(visiblePresentation, nowMs)}`
+          : null,
+        showCastMiracles
       )
     )
     .join("");
@@ -2543,12 +2906,9 @@ export function renderBattleScreen(
           )
           .join("")
       : emptyState(view.self ? "手札はありません" : "観戦者には手札は表示されません");
-  const miracleMarkup =
-    miracles.length > 0
-      ? miracles
-          .map((miracle) => renderMiracle(miracle, displayedUi, view))
-          .join("")
-      : emptyState("習得済みの奇跡はありません");
+  const miracleMarkup = miracles
+    .map((miracle, index) => renderMiracle(miracle, displayedUi, view, index))
+    .join("");
 
   return `
 <main
@@ -2618,9 +2978,21 @@ export function renderBattleScreen(
   >
     <div class="gf-section-heading">
       <p class="gf-section-heading__eyebrow">Miracles</p>
-      <h2 id="gf-miracles-title">習得済み奇跡</h2>
+      <h2 id="gf-miracles-title">
+        <button
+          type="button"
+          class="gf-miracles__toggle"
+          data-toggle-cast-miracles
+          aria-pressed="${String(showCastMiracles)}"
+        >起こした奇跡</button>
+      </h2>
     </div>
-    <ul class="gf-card-list gf-card-list--compact">${miracleMarkup}</ul>
+    ${
+      hoveredCardDefinitionId !== null &&
+      CARD_DEFINITIONS_BY_ID.has(hoveredCardDefinitionId)
+        ? `<div class="gf-card-detail" data-card-detail aria-live="polite">${renderFieldCard(hoveredCardDefinitionId)}</div>`
+        : ""
+    }
   </section>
 
   <section
@@ -2633,7 +3005,7 @@ export function renderBattleScreen(
       <h2 id="gf-hand-title">手札</h2>
       <span class="gf-count">${hand.length}枚</span>
     </div>
-    <ul class="gf-card-list">${handMarkup}</ul>
+    <ul class="gf-card-list">${handMarkup}${miracleMarkup}</ul>
   </section>
 
   <section
@@ -2669,12 +3041,6 @@ export function renderBattleScreen(
     </div>
     ${renderHandActionToggle(view, displayedUi)}
     ${
-      view.self?.legalActions.some(({ type }) => type === "SURRENDER")
-        ? '<button type="button" class="gf-surrender-trigger" data-open-utility="SURRENDER">降参</button>'
-        : ""
-    }
-    ${renderUtilityActions(view, displayedUi)}
-    ${
       preview.invalidReason
         ? `<p class="gf-controls__reason" role="status">${escapeHtml(preview.invalidReason)}</p>`
         : ""
@@ -2688,7 +3054,10 @@ export function renderBattleScreen(
     ${renderSoundControl("gf-battle-footer__sound")}
   </footer>
 
-  ${renderResultRegion(view, links)}
+  ${renderResultRegion(
+    presentationHoldsResult(visiblePresentation) ? { ...view, result: null } : view,
+    links
+  )}
 </main>`;
 }
 
@@ -2736,6 +3105,9 @@ export function mountBattleScreen(
   let renderedDeadlineSeconds: number | null = null;
   let disposed = false;
   let exitConfirmOpen = false;
+  // The last hovered card stays in the detail slot until another is hovered.
+  let hoveredCardDefinitionId: string | null = null;
+  let showCastMiracles = false;
   const sounds = new SoundEffectPlayer();
   const soundedStepIds = new Set<string>();
   let mutedSoundEventSeqThrough = 0;
@@ -2754,7 +3126,9 @@ export function mountBattleScreen(
       currentUi,
       links,
       presentation,
-      renderNow
+      renderNow,
+      hoveredCardDefinitionId,
+      showCastMiracles
     );
     renderedDeadlineSeconds = inputDeadlineRemainingSeconds(
       currentUi,
@@ -2847,37 +3221,7 @@ export function mountBattleScreen(
         }
         if ((type === "SELL_CARD" || type === "DECLARE_BUY") && exchangeCardId) {
           update(toggleTradeDraft(currentUi, type, exchangeCardId, currentView));
-          return;
         }
-        const forms = container.querySelectorAll<HTMLFormElement>(
-          "[data-utility-form]"
-        );
-        const form = [...forms].find(
-          (candidate) => candidate.dataset.utilityForm === type
-        );
-        if (!form) return;
-        for (const candidate of forms) candidate.hidden = candidate !== form;
-        form.hidden = false;
-        const cardInstanceId = button.dataset.utilityCardInstance;
-        const select = form.querySelector<HTMLSelectElement>(
-          'select[name="cardInstanceId"]'
-        );
-        if (
-          cardInstanceId &&
-          select &&
-          [...select.options].some(({ value }) => value === cardInstanceId)
-        ) {
-          select.value = cardInstanceId;
-        }
-        form.querySelector<HTMLElement>("select, button")?.focus();
-      });
-    }
-    for (const button of container.querySelectorAll<HTMLButtonElement>(
-      "[data-close-utility]"
-    )) {
-      button.addEventListener("click", () => {
-        const form = button.closest<HTMLFormElement>("[data-utility-form]");
-        if (form) form.hidden = true;
       });
     }
     for (const button of container.querySelectorAll<HTMLElement>(
@@ -2901,6 +3245,12 @@ export function mountBattleScreen(
         interactions.onCommand?.(prepared.command);
       }
     );
+    container
+      .querySelector<HTMLElement>("[data-toggle-cast-miracles]")
+      ?.addEventListener("click", () => {
+        showCastMiracles = !showCastMiracles;
+        renderAndBind();
+      });
     for (const button of container.querySelectorAll<HTMLElement>(
       "[data-select-miracle]"
     )) {
@@ -3055,45 +3405,6 @@ export function mountBattleScreen(
         interactions.onCommand?.(prepared.command);
       }
     );
-    for (const form of container.querySelectorAll<HTMLFormElement>(
-      "[data-utility-form]"
-    )) {
-      form.addEventListener("submit", (event) => {
-        event.preventDefault();
-        if (
-          currentUi.interactionLocked ||
-          currentUi.mode !== "COMPOSING_ACTION" ||
-          currentUi.inputDeadlineExpired ||
-          !currentView.self
-        ) {
-          return;
-        }
-        const type = form.dataset.utilityForm;
-        const action = currentView.self.legalActions.find(
-          (candidate) => candidate.type === type
-        );
-        if (!action) return;
-        const commandId =
-          currentUi.awaitingCommandId ?? createCommandId();
-        const base = {
-          matchId: currentView.matchId,
-          commandId,
-          actorId: currentView.self.playerId,
-          expectedRevision: currentView.revision
-        };
-        let command: GameCommand | null = null;
-        switch (action.type) {
-          case "SURRENDER":
-            command = { ...base, type: "SURRENDER" };
-            break;
-          default:
-            break;
-        }
-        if (!command) return;
-        update(lockForCommand(currentUi, commandId));
-        interactions.onCommand?.(command);
-      });
-    }
   };
 
   const playInteractionSound = (event: MouseEvent): void => {
@@ -3125,6 +3436,19 @@ export function mountBattleScreen(
   };
   container.addEventListener("click", playInteractionSound);
 
+  const showCardDetail = (event: Event): void => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const id = target
+      .closest<HTMLElement>(".gf-hand .gf-card, .gf-miracles .gf-card")
+      ?.dataset.cardDefinitionId;
+    if (!id || id === hoveredCardDefinitionId) return;
+    hoveredCardDefinitionId = id;
+    renderAndBind();
+  };
+  container.addEventListener("mouseover", showCardDetail);
+  container.addEventListener("focusin", showCardDetail);
+
   const playEventSound = (
     event: DomainEvent,
     stepId = `${event.eventSeq}`
@@ -3142,7 +3466,10 @@ export function mountBattleScreen(
   const playCurrentPresentationSound = (): void => {
     const step = presentation.activeStep?.step;
     if (!step) return;
-    if (step.event.type === "TRADE_PAYMENT_COLLECTED") {
+    if (
+      step.event.type === "TRADE_PAYMENT_COLLECTED" ||
+      (step.kind === "TRADE" && step.event.type === "RESOURCE_CHANGED")
+    ) {
       const stage = tradePresentationStage(step);
       if (stage === "STAMP" && !soundedStepIds.has(step.stepId)) {
         soundedStepIds.add(step.stepId);
@@ -3273,6 +3600,8 @@ export function mountBattleScreen(
       disposed = true;
       stopDeadlineTimer();
       container.removeEventListener("click", playInteractionSound);
+      container.removeEventListener("mouseover", showCardDetail);
+      container.removeEventListener("focusin", showCardDetail);
     },
     getUiState() {
       return currentUi;
@@ -3736,8 +4065,7 @@ export const BATTLE_SCREEN_STYLES = `
   font-weight: 850;
 }
 
-.gf-response__subject,
-.gf-trade-offer__payment {
+.gf-response__subject {
   inline-size: 100%;
   margin: 0;
   color: var(--gf-muted);
@@ -3795,22 +4123,6 @@ export const BATTLE_SCREEN_STYLES = `
 .gf-response__actions button:disabled {
   cursor: not-allowed;
   opacity: 0.5;
-}
-
-.gf-trade-offer {
-  inline-size: 100%;
-  display: grid;
-  gap: 0.55rem;
-}
-
-.gf-trade-offer__name {
-  color: var(--gf-accent);
-  font-size: 1.05rem;
-}
-
-.gf-trade-offer__effect {
-  margin: 0;
-  font-size: 0.78rem;
 }
 
 .gf-card-list {
@@ -3911,26 +4223,40 @@ export const BATTLE_SCREEN_STYLES = `
   font-size: 0.78rem;
 }
 
-.gf-input-status time {
-  justify-self: end;
-  color: var(--gf-accent);
-  font-variant-numeric: tabular-nums;
-  font-weight: 850;
+.gf-input-status--deadline {
+  display: block;
+  padding: 0;
+  border: 0;
+  background: transparent;
 }
 
-.gf-input-status small {
-  grid-column: 1 / -1;
-  color: var(--gf-muted);
+.gf-input-status__bar {
+  display: block;
+  block-size: 0.6rem;
+  inline-size: 100%;
+  transform-origin: left center;
+  background: #1f9e6e;
+  animation: gf-deadline-drain var(--gf-deadline-total, 30s) linear
+    var(--gf-deadline-elapsed, 0s) forwards;
+}
+
+@keyframes gf-deadline-drain {
+  from {
+    transform: scaleX(1);
+    background: #1f9e6e;
+  }
+  60% {
+    background: #1f9e6e;
+  }
+  to {
+    transform: scaleX(0);
+    background: #e04848;
+  }
 }
 
 .gf-input-status--warning {
   border-color: var(--gf-target);
   color: #ffd9d5;
-}
-
-.gf-input-status--cpu {
-  border-color: var(--gf-acting);
-  color: var(--gf-accent);
 }
 
 .gf-controls__observer-note {
@@ -3943,63 +4269,6 @@ export const BATTLE_SCREEN_STYLES = `
   display: flex;
   gap: 0.55rem;
   flex-wrap: wrap;
-}
-
-.gf-utility-actions {
-  margin-block-start: 0.75rem;
-  border-block-start: 1px solid var(--gf-line);
-  padding-block-start: 0.75rem;
-}
-
-.gf-utility-actions summary {
-  cursor: pointer;
-  color: var(--gf-accent);
-  font-weight: 700;
-}
-
-.gf-utility-action {
-  display: grid;
-  gap: 0.55rem;
-  margin-block-start: 0.75rem;
-  border: 1px solid var(--gf-line);
-  border-radius: 0.55rem;
-  padding: 0.7rem;
-}
-
-.gf-utility-action[hidden] {
-  display: none;
-}
-
-.gf-utility-action__close {
-  justify-self: end;
-}
-
-.gf-utility-action label {
-  display: grid;
-  gap: 0.3rem;
-  color: var(--gf-muted);
-  font-size: 0.85rem;
-}
-
-.gf-utility-action select,
-.gf-utility-action input {
-  min-inline-size: 0;
-  border: 1px solid var(--gf-line);
-  border-radius: 0.4rem;
-  padding: 0.45rem;
-  color: #006f8f;
-  background: var(--gf-panel-strong);
-}
-
-.gf-utility-action__resources {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.45rem;
-}
-
-.gf-utility-action__danger {
-  border-color: var(--gf-target);
-  color: #ffd8d3;
 }
 
 .gf-controls button {
@@ -4423,7 +4692,148 @@ export const BATTLE_SCREEN_STYLES = `
 
 .gf-player__header {
   min-inline-size: 0;
-  display: block;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  gap: 2%;
+}
+
+.gf-player__calamities {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 2px;
+  overflow: hidden;
+}
+
+.gf-calamity-slot {
+  min-inline-size: 0;
+  display: flex;
+  justify-content: center;
+}
+
+.gf-player__guardian {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-inline-size: 0;
+  padding: 1px 6px 1px 1px;
+  border-radius: 999px;
+  color: #6b5200;
+  background: #f3e6a8;
+  box-shadow: 0 0 0 1px #aa8800;
+  font-size: clamp(7px, 1.2cqi, 13px);
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.gf-player__guardian-art {
+  flex: none;
+  inline-size: 2.6em;
+  block-size: 2.6em;
+  border-radius: 50%;
+  object-fit: cover;
+  text-align: center;
+}
+
+.gf-player__guardian-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Hidden while the summon art flies in, then pops into the name plate. */
+.gf-player__guardian[data-intro="true"] {
+  animation: gf-guardian-chip-in var(--gf-summon-ms, 1500ms) linear both;
+  animation-delay: var(--gf-effect-delay, 0ms);
+}
+
+.gf-guardian-summon {
+  position: absolute;
+  z-index: 21;
+  inset: 50% auto auto 50%;
+  inline-size: 30%;
+  aspect-ratio: 1;
+  pointer-events: none;
+  animation: gf-guardian-summon var(--gf-summon-ms, 1500ms) ease-in-out both;
+  animation-delay: var(--gf-effect-delay, 0ms);
+}
+
+.gf-guardian-summon__art {
+  inline-size: 100%;
+  block-size: 100%;
+  border: 6px solid #fff4;
+  border-radius: 12px;
+  box-shadow:
+    0 0 2.5rem rgb(255 220 120 / 85%),
+    0 12px 30px rgb(0 0 0 / 35%);
+  object-fit: cover;
+}
+
+@keyframes gf-guardian-summon {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.2);
+  }
+  25% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  65% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.15);
+  }
+}
+
+@keyframes gf-guardian-chip-in {
+  0%,
+  70% {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  85% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gf-guardian-summon,
+  .gf-player__guardian[data-intro="true"] {
+    animation: none;
+  }
+
+  .gf-guardian-summon {
+    transform: translate(-50%, -50%);
+  }
+}
+
+.gf-calamity-chip {
+  padding: 0 4px;
+  border-radius: 3px;
+  color: #ffffff;
+  background: #cc6644;
+  font-size: clamp(6px, 1.0185cqi, 11px);
+  font-weight: 700;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+.gf-calamity-chip[data-calamity="HEAVEN_SICKNESS"] {
+  background: #4488cc;
+}
+
+.gf-calamity-chip[data-calamity="HELL_SICKNESS"] {
+  background: #884466;
 }
 
 .gf-player__seat {
@@ -4481,6 +4891,27 @@ export const BATTLE_SCREEN_STYLES = `
 .gf-player[data-self="true"] .gf-player__name {
   color: #008f6f;
   font-size: clamp(9px, 1.7593cqi, 19px);
+}
+
+.gf-player__name[data-name-size="1"] {
+  font-size: clamp(8px, 1.8cqi, 20px);
+}
+
+.gf-player__name[data-name-size="2"] {
+  font-size: clamp(7px, 1.4cqi, 15px);
+}
+
+.gf-player__name[data-name-size="3"] {
+  font-size: clamp(7px, 1.2cqi, 13px);
+}
+
+.gf-player[data-self="true"] .gf-player__name[data-name-size="1"] {
+  font-size: clamp(8px, 1.5cqi, 16px);
+}
+
+.gf-player[data-self="true"] .gf-player__name[data-name-size="2"],
+.gf-player[data-self="true"] .gf-player__name[data-name-size="3"] {
+  font-size: clamp(7px, 1.2cqi, 13px);
 }
 
 .gf-player__state,
@@ -4698,6 +5129,24 @@ export const BATTLE_SCREEN_STYLES = `
   aspect-ratio: 10 / 3;
 }
 
+/* Past three cards the lane overflows, so cards overlap like a fanned stack:
+   later cards sit on top and only each earlier card's title strip stays visible. */
+.gf-action__stack[data-stacked="true"] {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  overflow: visible;
+}
+
+.gf-action__stack[data-stacked="true"] > .gf-field-card {
+  flex: none;
+  box-shadow: 0 -2px 4px rgb(0 0 0 / 25%);
+}
+
+.gf-action__stack[data-stacked="true"] > .gf-field-card + .gf-field-card {
+  margin-block-start: -54px;
+}
+
 .gf-action__stack--defense:empty {
   visibility: hidden;
 }
@@ -4850,10 +5299,79 @@ export const BATTLE_SCREEN_STYLES = `
   left: 0;
 }
 
+/* Before a sale's coin moves, the product is still on the seller's side and
+   the coin waits at the payer. */
+.gf-trade-swap[data-trade-kind="SELL"][data-trade-stage="PRICE"] .gf-trade-swap__product {
+  left: 0;
+}
+
+.gf-trade-swap[data-trade-kind="SELL"][data-trade-stage="PRICE"] .gf-trade-swap__coin {
+  left: calc(76.5625% - 78px);
+}
+
+/* A guardian theft carries the coin from the robbed player to the guardian
+   portrait in the right lane. */
+.gf-trade-swap .gf-trade-swap__guardian {
+  position: absolute;
+  top: 152px;
+  left: calc(76.5625% - 90px);
+  inline-size: 180px;
+  block-size: 180px;
+  display: grid;
+  place-items: center;
+  border: 6px solid #fff4;
+  border-radius: 12px;
+  color: #ffffff;
+  background: #335555;
+  box-shadow:
+    0 0 2.5rem rgb(255 220 120 / 85%),
+    0 12px 30px rgb(0 0 0 / 35%);
+  font-size: 64px;
+  object-fit: cover;
+}
+
+.gf-trade-swap[data-trade-kind="GUARDIAN"] .gf-trade-swap__coin {
+  z-index: 1;
+  left: calc(76.5625% - 78px);
+}
+
+.gf-trade-swap[data-trade-kind="GUARDIAN"][data-trade-stage="PRICE"] .gf-trade-swap__coin {
+  left: calc(23.4375% - 78px);
+}
+
+.gf-trade-swap[data-trade-stage="SWAP"][data-trade-kind="GUARDIAN"] .gf-trade-swap__coin {
+  animation: gf-trade-coin-right 800ms cubic-bezier(0.61, 1, 0.88, 1) var(--gf-trade-delay) both;
+}
+
+.gf-action__result[data-result="trade-notice"] {
+  --gf-effect-rest-y: -50%;
+  top: 38%;
+  inline-size: auto;
+  min-inline-size: 30%;
+  block-size: auto;
+  padding: 2% 4%;
+  border: 0;
+  border-radius: 16px;
+  color: #ffffff;
+  background: #eebb00;
+}
+
+.gf-action__result[data-result="trade-notice"][data-placement="actor"] {
+  left: 23.4375%;
+}
+
+.gf-action__result[data-result="trade-notice"] strong {
+  font-size: clamp(28px, 5.5556cqi, 60px);
+  line-height: 1;
+  text-shadow: none;
+  white-space: nowrap;
+}
+
+/* Centered on the buyer's card lane, like 許す and the damage result. */
 .gf-trade-swap__stamp {
   position: absolute;
-  top: 0;
-  left: 0;
+  top: 48%;
+  left: 23.4375%;
   inline-size: 46.875%;
   block-size: 90px;
   display: grid;
@@ -4939,6 +5457,60 @@ export const BATTLE_SCREEN_STYLES = `
   top: -8px;
   block-size: 90px;
   animation-duration: 233ms;
+}
+
+.gf-action__result[data-result="deflect"] {
+  --gf-effect-rest-y: -50%;
+  top: 38%;
+  inline-size: auto;
+  min-inline-size: 30%;
+  block-size: auto;
+  padding: 2% 4%;
+  border: 0;
+  border-radius: 16px;
+  color: #ffffff;
+  background: #eebb00;
+}
+
+.gf-action__result[data-result="deflect"][data-placement="defense-left"] {
+  left: 25%;
+}
+
+.gf-action__result[data-result="deflect"] strong {
+  font-size: clamp(28px, 5.5556cqi, 60px);
+  line-height: 1;
+  text-shadow: none;
+  white-space: nowrap;
+}
+
+.gf-action__content[data-attack-side="right"] > .gf-action__stack--attack {
+  grid-column: 2;
+}
+
+.gf-action__content[data-attack-side="right"] > .gf-action__stack--defense {
+  grid-column: 1;
+}
+
+.gf-action__stack[data-redirect-move] {
+  animation: gf-redirect-slide var(--gf-redirect-ms, 1000ms) ease-in-out var(--gf-effect-delay, 0ms) both;
+}
+
+.gf-action__content[data-attack-side="right"] > .gf-action__stack[data-redirect-move] {
+  --gf-redirect-from: -113.3333%;
+}
+
+.gf-action__content[data-attack-side="left"] > .gf-action__stack[data-redirect-move] {
+  --gf-redirect-from: 113.3333%;
+}
+
+@keyframes gf-redirect-slide {
+  from {
+    transform: translateX(var(--gf-redirect-from));
+  }
+
+  to {
+    transform: translateX(0);
+  }
 }
 
 .gf-action__result[data-placement="actor"] {
@@ -5046,6 +5618,12 @@ export const BATTLE_SCREEN_STYLES = `
   border: 2px solid #990000;
   color: #990000;
   background: #ffc8cc;
+}
+
+.gf-action__result[data-result="miss"] {
+  border-color: #660099;
+  color: #660099;
+  background: #e6c8ff;
 }
 
 .gf-action__result[data-result="hit"] strong,
@@ -5269,6 +5847,60 @@ export const BATTLE_SCREEN_STYLES = `
   content: "攻";
 }
 
+.gf-action__summary[data-element="FIRE"] div:first-child {
+  border-color: #e5483a;
+  background: #ffd9d4;
+}
+
+.gf-action__summary[data-element="FIRE"] div:first-child dd {
+  color: #e5483a;
+}
+
+.gf-action__summary[data-element="WATER"] div:first-child {
+  border-color: #2f7fe0;
+  background: #d6e8ff;
+}
+
+.gf-action__summary[data-element="WATER"] div:first-child dd {
+  color: #2f7fe0;
+}
+
+.gf-action__summary[data-element="WOOD"] div:first-child {
+  border-color: #2fa44f;
+  background: #d4f5da;
+}
+
+.gf-action__summary[data-element="WOOD"] div:first-child dd {
+  color: #2fa44f;
+}
+
+.gf-action__summary[data-element="EARTH"] div:first-child {
+  border-color: #b9812c;
+  background: #f5e4c4;
+}
+
+.gf-action__summary[data-element="EARTH"] div:first-child dd {
+  color: #b9812c;
+}
+
+.gf-action__summary[data-element="LIGHT"] div:first-child {
+  border-color: #e6b800;
+  background: #fff6c2;
+}
+
+.gf-action__summary[data-element="LIGHT"] div:first-child dd {
+  color: #e6b800;
+}
+
+.gf-action__summary[data-element="DARK"] div:first-child {
+  border-color: #7a3fb5;
+  background: #e6d6f5;
+}
+
+.gf-action__summary[data-element="DARK"] div:first-child dd {
+  color: #7a3fb5;
+}
+
 .gf-response {
   position: absolute;
   z-index: 7;
@@ -5412,30 +6044,6 @@ export const BATTLE_SCREEN_STYLES = `
   box-shadow: none;
 }
 
-.gf-trade-offer {
-  inline-size: 100%;
-  min-block-size: 60%;
-  padding: 4%;
-  display: grid;
-  align-content: center;
-  gap: 3%;
-  border: 5px solid #55bb99;
-  border-radius: 8px;
-  color: #4f4f4f;
-  background: #ddffcc;
-}
-
-.gf-trade-offer__name {
-  color: #4f4f4f;
-  font-size: clamp(10px, 1.8519cqi, 20px);
-}
-
-.gf-trade-offer__effect,
-.gf-trade-offer__payment {
-  margin: 0;
-  font-size: clamp(7px, 1.2963cqi, 14px);
-}
-
 .gf-miracles {
   position: absolute;
   z-index: 4;
@@ -5471,6 +6079,55 @@ export const BATTLE_SCREEN_STYLES = `
 .gf-miracles .gf-section-heading h2::before {
   margin-inline-end: 0.25em;
   content: "☀";
+}
+
+.gf-miracles__toggle {
+  min-block-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+
+.gf-miracles .gf-section-heading:has([aria-pressed="true"]) {
+  background: #cccccc;
+}
+
+.gf-cast-miracle {
+  min-inline-size: 0;
+  block-size: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.gf-cast-miracle__image {
+  block-size: 86%;
+  aspect-ratio: 1;
+  border: 2px solid #55bb99;
+  border-radius: 4px;
+  object-fit: cover;
+}
+
+.gf-player:has(.gf-cast-miracle) .gf-resources {
+  display: none;
+}
+
+.gf-miracles .gf-card-detail {
+  block-size: 39.1304%;
+  margin-block-end: 4.3478%;
+}
+
+.gf-miracles .gf-card-detail .gf-field-card {
+  block-size: 100%;
+  aspect-ratio: auto;
+}
+
+.gf-miracles .gf-card-detail + .gf-card-list {
+  max-block-size: 30.4348%;
 }
 
 .gf-miracles .gf-card-list {
@@ -5681,7 +6338,14 @@ export const BATTLE_SCREEN_STYLES = `
   white-space: nowrap;
 }
 
-.gf-hand .gf-card__effect[data-trade-price] {
+.gf-hand .gf-card[data-card-element="FIRE"] .gf-card__effect { color: #e5483a; }
+.gf-hand .gf-card[data-card-element="WATER"] .gf-card__effect { color: #2f7fe0; }
+.gf-hand .gf-card[data-card-element="WOOD"] .gf-card__effect { color: #2fa44f; }
+.gf-hand .gf-card[data-card-element="EARTH"] .gf-card__effect { color: #b9812c; }
+.gf-hand .gf-card[data-card-element="LIGHT"] .gf-card__effect { color: #c99a00; }
+.gf-hand .gf-card[data-card-element="DARK"] .gf-card__effect { color: #7a3fb5; }
+
+.gf-hand .gf-card .gf-card__effect[data-trade-price] {
   color: #4f5f2f;
   background: #ffffbb;
 }
@@ -5692,6 +6356,31 @@ export const BATTLE_SCREEN_STYLES = `
 
 .gf-hand .gf-card__button:disabled {
   opacity: 0.62;
+}
+
+.gf-hand .gf-card.gf-card--miracle[data-card-category] {
+  grid-row: 2;
+  grid-column: calc(9 - var(--gf-miracle-slot, 0));
+  background: #55bb99;
+}
+
+.gf-hand .gf-card--miracle::after {
+  position: absolute;
+  z-index: 1;
+  top: 3%;
+  right: 3%;
+  inline-size: 26%;
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: #ffffff;
+  background: #33bb88;
+  box-shadow: 0 0 0 1px #ffffff;
+  content: "☀";
+  font-size: clamp(7px, 1.4cqi, 16px);
+  line-height: 1;
+  pointer-events: none;
 }
 
 .gf-hand .gf-card[data-selected="true"] {
@@ -5752,66 +6441,53 @@ export const BATTLE_SCREEN_STYLES = `
   font-size: clamp(7px, 1.1111cqi, 12px);
 }
 
-.gf-utility-actions {
-  position: absolute;
-  top: 58%;
-  right: -4%;
-  inline-size: 18%;
-  block-size: 66.6667%;
-  margin: 0;
-  border: 0;
+.gf-input-status.gf-input-status--deadline {
+  right: auto;
+  left: 0;
+  bottom: 110%;
+  inline-size: 100%;
   padding: 0;
-  color: #668888;
-  font-size: clamp(7px, 1.1111cqi, 12px);
-  pointer-events: none;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
+.gf-input-status--deadline .gf-input-status__bar {
+  block-size: clamp(4px, 1.1cqi, 10px);
+}
+
+/* Sits directly above the ninth hand slot, 8px clear of the hand row. */
 .gf-hand-action-toggle {
   position: absolute;
-  top: 58%;
-  right: -4%;
-  inline-size: 18%;
-  block-size: 66.6667%;
+  top: 16.6667%;
+  left: 214.6154%;
+  inline-size: 27.6923%;
+  block-size: 120%;
+  min-block-size: 0 !important;
+  padding: 0 !important;
   display: grid;
   place-items: center;
-  overflow: hidden;
-  border: 4px solid #999999;
-  border-radius: 0;
-  color: #888888;
-  background: #eeeeee;
-  font-size: clamp(7px, 1.1111cqi, 12px);
-  text-align: center;
+  border: 5px solid #999999 !important;
+  border-radius: 0 !important;
+  background: #e6e6e6 !important;
+  box-shadow: inset 0 0 0 2px #f4f4f4;
+  cursor: pointer;
+}
+
+.gf-hand-action-toggle__icon {
+  inline-size: 100%;
+  block-size: 100%;
+  fill: none;
+  stroke: #999999;
+  stroke-width: 1.6;
+}
+
+.gf-hand-action-toggle:hover {
+  border-color: #888888 !important;
 }
 
 .gf-hand-action-toggle[aria-pressed="true"] {
-  border-color: #ffbb00;
-  color: #eeffee;
-  background: #ffbb00;
-}
-
-.gf-surrender-trigger {
-  position: absolute;
-  top: 140%;
-  right: -4%;
-  inline-size: 18%;
-  block-size: 42%;
-  min-block-size: 0 !important;
-  padding: 0 !important;
-  font-size: clamp(6px, 0.9259cqi, 10px) !important;
-}
-
-.gf-utility-action {
-  position: relative;
-  z-index: 20;
-  right: 750%;
-  inline-size: 850%;
-  max-block-size: 24cqi;
-  margin: 1% 0 0;
-  overflow-y: auto;
-  border-color: #668888;
-  color: #4f4f4f;
-  background: #eeffee;
-  pointer-events: auto;
+  border-color: #ffbb00 !important;
 }
 
 .gf-utility-card-choices {

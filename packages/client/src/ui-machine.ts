@@ -390,6 +390,9 @@ export function synchronizeUiState(
   return synchronized;
 }
 
+/** Server grants 30 seconds per human input (engine `deadlineFor`). */
+export const INPUT_DEADLINE_TOTAL_MS = 30_000;
+
 export function inputDeadlineRemainingSeconds(
   current: UiInteractionState,
   nowMs: number
@@ -1050,6 +1053,72 @@ function hasSelectedSpecialReaction(
   );
 }
 
+function isElementFilter(cardDefinitionId: string): boolean {
+  return (
+    CARD_DEFINITIONS_BY_ID.get(cardDefinitionId)?.instructions.some(
+      (instruction) =>
+        instruction.kind === "SPECIAL" &&
+        instruction.operation === "FILTER_ATTACK_ELEMENT"
+    ) ?? false
+  );
+}
+
+function hasSelectedElementFilter(
+  current: UiInteractionState,
+  view: GameViewState
+): boolean {
+  return selectedReactionSources(current, view).some(({ cardDefinitionId }) =>
+    isElementFilter(cardDefinitionId)
+  );
+}
+
+function reactionCardAvailable(
+  current: UiInteractionState,
+  view: GameViewState,
+  reaction: DeclareReactionView | null,
+  cardInstanceId: string
+): boolean {
+  if (!reaction?.defenseCardInstanceIds.includes(cardInstanceId)) return false;
+  return (
+    !(reaction.filterOnlyCardInstanceIds ?? []).includes(cardInstanceId) ||
+    hasSelectedElementFilter(current, view)
+  );
+}
+
+function reactionMiracleAvailable(
+  current: UiInteractionState,
+  view: GameViewState,
+  reaction: DeclareReactionView | null,
+  learnedMiracleId: string
+): boolean {
+  if (!reaction?.defenseLearnedMiracleIds.includes(learnedMiracleId)) {
+    return false;
+  }
+  return (
+    !(reaction.filterOnlyLearnedMiracleIds ?? []).includes(learnedMiracleId) ||
+    hasSelectedElementFilter(current, view)
+  );
+}
+
+/** Drops selections that were only valid because a now-deselected filter. */
+function pruneFilterOnlySelections(
+  current: UiInteractionState,
+  view: GameViewState
+): UiInteractionState {
+  const reaction = declareReaction(view);
+  if (!reaction || hasSelectedElementFilter(current, view)) return current;
+  return {
+    ...current,
+    selectedDefenseCardIds: current.selectedDefenseCardIds.filter(
+      (id) => !(reaction.filterOnlyCardInstanceIds ?? []).includes(id)
+    ),
+    selectedDefenseLearnedMiracleIds:
+      current.selectedDefenseLearnedMiracleIds.filter(
+        (id) => !(reaction.filterOnlyLearnedMiracleIds ?? []).includes(id)
+      )
+  };
+}
+
 export function defenseCardStatus(
   current: UiInteractionState,
   view: GameViewState,
@@ -1066,7 +1135,7 @@ export function defenseCardStatus(
   }
   const selectable =
     current.mode === "COMPOSING_REACTION" &&
-    (reaction?.defenseCardInstanceIds.includes(cardInstanceId) ?? false);
+    reactionCardAvailable(current, view, reaction, cardInstanceId);
   return {
     selectable,
     selected,
@@ -1091,7 +1160,7 @@ export function defenseMiracleStatus(
   }
   const selectable =
     current.mode === "COMPOSING_REACTION" &&
-    (reaction?.defenseLearnedMiracleIds.includes(learnedMiracleId) ?? false);
+    reactionMiracleAvailable(current, view, reaction, learnedMiracleId);
   return {
     selectable,
     selected,
@@ -1108,20 +1177,23 @@ export function selectDefenseCard(
     return current;
   }
   const reaction = declareReaction(view);
-  if (!reaction?.defenseCardInstanceIds.includes(cardInstanceId)) {
+  if (!reaction || !reactionCardAvailable(current, view, reaction, cardInstanceId)) {
     return {
       ...current,
       selectionInvalidReason: "この神器は今回の防御には使用できません"
     };
   }
   if (current.selectedDefenseCardIds.includes(cardInstanceId)) {
-    return {
-      ...current,
-      selectedDefenseCardIds: current.selectedDefenseCardIds.filter(
-        (id) => id !== cardInstanceId
-      ),
-      selectionInvalidReason: null
-    };
+    return pruneFilterOnlySelections(
+      {
+        ...current,
+        selectedDefenseCardIds: current.selectedDefenseCardIds.filter(
+          (id) => id !== cardInstanceId
+        ),
+        selectionInvalidReason: null
+      },
+      view
+    );
   }
   if (
     reaction.maxDefenseCards !== null &&
@@ -1165,7 +1237,7 @@ export function selectDefenseMiracle(
     return current;
   }
   const reaction = declareReaction(view);
-  if (!reaction?.defenseLearnedMiracleIds.includes(learnedMiracleId)) {
+  if (!reactionMiracleAvailable(current, view, reaction, learnedMiracleId)) {
     return {
       ...current,
       selectionInvalidReason: "この奇跡は今回の防御には使用できません"
@@ -1174,14 +1246,17 @@ export function selectDefenseMiracle(
   if (
     current.selectedDefenseLearnedMiracleIds.includes(learnedMiracleId)
   ) {
-    return {
-      ...current,
-      selectedDefenseLearnedMiracleIds:
-        current.selectedDefenseLearnedMiracleIds.filter(
-          (id) => id !== learnedMiracleId
-        ),
-      selectionInvalidReason: null
-    };
+    return pruneFilterOnlySelections(
+      {
+        ...current,
+        selectedDefenseLearnedMiracleIds:
+          current.selectedDefenseLearnedMiracleIds.filter(
+            (id) => id !== learnedMiracleId
+          ),
+        selectionInvalidReason: null
+      },
+      view
+    );
   }
   const miracle = view.self?.learnedMiracles.find(
     ({ learnedMiracleId: id }) => id === learnedMiracleId

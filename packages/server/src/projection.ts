@@ -1,6 +1,7 @@
-import type { CardDefinition } from "../../shared/src/card-types.ts";
+import type { CardDefinition, Element } from "../../shared/src/card-types.ts";
 import {
   CARD_DEFINITIONS_BY_ID,
+  attackStandsAlone,
   instructionsOfKind
 } from "../../shared/src/cards.ts";
 import type {
@@ -12,6 +13,7 @@ import type {
 import type {
   GameViewState,
   LegalActionView,
+  PendingTradeView,
   PlayerPublicView,
   SaleProductView,
   SelfPrivateView
@@ -51,7 +53,8 @@ function publicPlayer(player: PlayerState): PlayerPublicView {
     calamities: { ...player.calamities },
     guardian: player.guardian ? { ...player.guardian } : null,
     handCount: player.hand.length,
-    learnedMiracleCount: player.learnedMiracles.length
+    learnedMiracleCount: player.learnedMiracles.length,
+    lastMiracleCardDefinitionId: player.lastMiracleCardDefinitionId ?? null
   };
 }
 
@@ -194,31 +197,58 @@ export function legalActionsFor(
     const effectiveAttackElement = canFilterElement
       ? "PHYSICAL"
       : attack.element;
-    const defenseCardInstanceIds = player.hand
-      .filter((card) => {
-        const definition = definitionFor(card);
-        const defense = instructionsOfKind(definition, "DEFENSE")[0];
-        const reactionEffect = reactionEffectFor(
-          definition,
-          attack.attackKind,
-          effectiveAttackElement
-        );
-        if (attack.attackKind === "TARGETED_CARD") {
-          return (
-            reactionEffect === "REFLECT" &&
-            (definition.category !== "MIRACLE" ||
-              (definition.mpCost ?? 0) <= player.mp)
-          );
-        }
+    const cardCanReact = (
+      definition: CardDefinition,
+      element: Element
+    ): boolean => {
+      const defense = instructionsOfKind(definition, "DEFENSE")[0];
+      const reactionEffect = reactionEffectFor(
+        definition,
+        attack.attackKind,
+        element
+      );
+      if (attack.attackKind === "TARGETED_CARD") {
         return (
-          ((defense !== undefined &&
-            canDefenseBlock(definition.element, effectiveAttackElement)) ||
-            reactionEffect !== null ||
-            hasCounterOrFilterEffect(definition)) &&
+          reactionEffect === "REFLECT" &&
           (definition.category !== "MIRACLE" ||
             (definition.mpCost ?? 0) <= player.mp)
         );
-      })
+      }
+      return (
+        ((defense !== undefined &&
+          canDefenseBlock(definition.element, element)) ||
+          reactionEffect !== null ||
+          hasCounterOrFilterEffect(definition)) &&
+        (definition.category !== "MIRACLE" ||
+          (definition.mpCost ?? 0) <= player.mp)
+      );
+    };
+    const learnedCanReact = (
+      definition: CardDefinition | undefined,
+      element: Element
+    ): boolean => {
+      if (definition === undefined) return false;
+      const reactionEffect = reactionEffectFor(
+        definition,
+        attack.attackKind,
+        element
+      );
+      return (
+        (attack.attackKind === "TARGETED_CARD"
+          ? reactionEffect === "REFLECT"
+          : reactionEffect !== null || hasCounterOrFilterEffect(definition)) &&
+        (definition.mpCost ?? 0) <= player.mp
+      );
+    };
+    const defenseCardInstanceIds = player.hand
+      .filter((card) => cardCanReact(definitionFor(card), effectiveAttackElement))
+      .map(({ instanceId }) => instanceId);
+    const filterOnlyCardInstanceIds = player.hand
+      .filter(
+        (card) =>
+          defenseCardInstanceIds.includes(card.instanceId) &&
+          !cardCanReact(definitionFor(card), attack.element)
+      )
       .map(({ instanceId }) => instanceId);
     const defenseValueByCardInstanceId = Object.fromEntries(
       player.hand
@@ -237,28 +267,25 @@ export function legalActionsFor(
           ];
         })
     );
+    const learnedDefinition = (cardDefinitionId: string) =>
+      CARD_DEFINITIONS_BY_ID.get(cardDefinitionId);
     const defenseLearnedMiracleIds = player.learnedMiracles
-      .filter((miracle) => {
-        const definition = CARD_DEFINITIONS_BY_ID.get(
-          miracle.cardDefinitionId
-        );
-        return (
-          definition !== undefined &&
-          (attack.attackKind === "TARGETED_CARD"
-            ? reactionEffectFor(
-                definition,
-                attack.attackKind,
-                effectiveAttackElement
-              ) === "REFLECT"
-            : reactionEffectFor(
-                  definition,
-                  attack.attackKind,
-                  effectiveAttackElement
-                ) !== null ||
-              hasCounterOrFilterEffect(definition)) &&
-          (definition.mpCost ?? 0) <= player.mp
-        );
-      })
+      .filter((miracle) =>
+        learnedCanReact(
+          learnedDefinition(miracle.cardDefinitionId),
+          effectiveAttackElement
+        )
+      )
+      .map(({ learnedMiracleId }) => learnedMiracleId);
+    const filterOnlyLearnedMiracleIds = player.learnedMiracles
+      .filter(
+        (miracle) =>
+          defenseLearnedMiracleIds.includes(miracle.learnedMiracleId) &&
+          !learnedCanReact(
+            learnedDefinition(miracle.cardDefinitionId),
+            attack.element
+          )
+      )
       .map(({ learnedMiracleId }) => learnedMiracleId);
     return [
       {
@@ -267,6 +294,8 @@ export function legalActionsFor(
         defenseCardInstanceIds,
         defenseValueByCardInstanceId,
         defenseLearnedMiracleIds,
+        filterOnlyCardInstanceIds,
+        filterOnlyLearnedMiracleIds,
         maxDefenseCards: player.calamities.FLASH ? 1 : null,
         canForgive: true
       }
@@ -287,7 +316,9 @@ export function legalActionsFor(
       return (
         (definition.category === "WEAPON" ||
           definition.category === "MIRACLE" ||
-          definition.category === "GOODS") &&
+          definition.category === "GOODS" ||
+          (definition.category === "ARMOR" &&
+            attackStandsAlone(definition))) &&
         composesWithPrimaryAttack(definition) &&
         (definition.mpCost ?? 0) <= player.mp
       );
@@ -311,9 +342,10 @@ export function legalActionsFor(
     const attack = instructionsOfKind(definition, "ATTACK")[0];
     if (
       (definition.category === "WEAPON" ||
-        definition.category === "MIRACLE") &&
+        definition.category === "MIRACLE" ||
+        definition.category === "ARMOR") &&
       attack &&
-      !attack.additive &&
+      attackStandsAlone(definition) &&
       ((definition.mpCost ?? 0) <= player.mp ||
         (definition.category === "MIRACLE" &&
           costCutterCardInstanceIds.length > 0))
@@ -523,6 +555,26 @@ function pendingSaleProduct(state: MatchState): SaleProductView | null {
     : null;
 }
 
+// A buy offer is public: every viewer sees the offered artifact and its price.
+function pendingTradeView(state: MatchState): PendingTradeView | null {
+  const pending = state.pendingAction;
+  if (state.phase !== "TRADE_CONFIRMATION" || pending?.kind !== "TRADE_CONFIRMATION") {
+    return null;
+  }
+  const offered = state.players[pending.targetPlayerId]?.hand.find(
+    ({ instanceId }) => instanceId === pending.offeredCardInstanceId
+  );
+  return offered
+    ? {
+        tradeId: pending.tradeId,
+        actorId: pending.actorId,
+        targetPlayerId: pending.targetPlayerId,
+        offeredCardDefinitionId: offered.cardDefinitionId,
+        price: pending.price
+      }
+    : null;
+}
+
 export function projectGameView(
   state: MatchState,
   viewerPlayerId: string | null
@@ -543,6 +595,7 @@ export function projectGameView(
       ? {
           attackId: pendingAttack.attackId,
           reactionId: pendingAttack.reactionId,
+          reactionDepth: pendingAttack.reactionDepth,
           seriesId: pendingAttack.seriesId,
           attackNumber: pendingAttack.attackNumber,
           totalAttacks: pendingAttack.totalAttacks,
@@ -560,6 +613,7 @@ export function projectGameView(
           saleProduct: pendingSaleProduct(state)
         }
       : null,
+    pendingTrade: pendingTradeView(state),
     players: Object.values(state.players)
       .sort((left, right) => left.seat - right.seat)
       .map(publicPlayer),

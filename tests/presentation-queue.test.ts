@@ -52,6 +52,8 @@ test("current presentation profile matches the recorded 500/1000ms combat timing
     stageGapMs: 500,
     attackStageMs: 500,
     attackResultMs: 1_000,
+    deflectHoldMs: 1_000,
+    redirectMoveMs: 1_000,
     hitResultMs: 750,
     resolutionHoldMs: 500,
     healingHoldMs: 1_000,
@@ -388,6 +390,31 @@ test("match result remains behind ascension and surrender uses the exit hold", (
   assert.equal(result.activeStep?.step.durationMs, 500);
 });
 
+test("a full snapshot of an already ended match skips every presentation step", () => {
+  const ended = { ...snapshot(11), phase: "MATCH_ENDED" as const };
+  const replaced = replacePresentationFromSnapshot(
+    createPresentationQueue(),
+    [
+      event({
+        type: "PLAYER_ASCENDED",
+        eventSeq: 10,
+        playerId: "a",
+        reason: "SURRENDER"
+      }),
+      event({
+        type: "MATCH_ENDED",
+        eventSeq: 11,
+        result: { kind: "WIN", winnerPlayerIds: ["b"], winnerTeamId: null }
+      })
+    ],
+    ended,
+    0
+  );
+  assert.equal(isPresentationSettled(replaced), true);
+  assert.equal(replaced.lastQueuedEventSeq, 11);
+  assert.equal(replaced.latestSnapshot, ended);
+});
+
 test("large clock jumps never discard intermediate visible stages", () => {
   const queued = enqueuePresentationEvents(
     createPresentationQueue(),
@@ -530,11 +557,38 @@ test("event-to-stage mapping keeps attack presentation order", () => {
   );
   assert.deepEqual(
     [...action, ...target, ...reaction].map(({ kind }) => kind),
-    ["ACTION", "TARGET", "REACTION"]
+    ["ACTION", "REACTION", "TARGET", "REACTION"]
   );
   assert.deepEqual(
     [...action, ...target, ...reaction].map(({ durationMs }) => durationMs),
-    [500, 500, 500]
+    [500, 1000, 1000, 500]
+  );
+});
+
+test("a deflected attack holds the defense card, then slides the attack card over", () => {
+  const redirected = presentationStepsForEvent(
+    event({
+      type: "ATTACK_REDIRECTED",
+      eventSeq: 4,
+      attackId: "attack-1",
+      reactionId: "attack-1:reaction:1",
+      actorId: "b",
+      targetPlayerId: "a",
+      reactionDepth: 1,
+      redirectType: "REFLECT"
+    })
+  );
+  assert.deepEqual(
+    redirected.map(({ kind, durationMs, stageIndex, stageCount }) => [
+      kind,
+      durationMs,
+      stageIndex,
+      stageCount
+    ]),
+    [
+      ["REACTION", 1000, 0, 2],
+      ["TARGET", 1000, 1, 2]
+    ]
   );
 });
 

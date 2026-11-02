@@ -52,6 +52,9 @@ export type LegalActionView =
       defenseCardInstanceIds: string[];
       defenseValueByCardInstanceId: Record<string, number>;
       defenseLearnedMiracleIds: string[];
+      /** Selectable only while an element-filter card is also selected. */
+      filterOnlyCardInstanceIds?: string[];
+      filterOnlyLearnedMiracleIds?: string[];
       maxDefenseCards: number | null;
       canForgive: true;
     };
@@ -76,6 +79,7 @@ export type PlayerPublicView = Pick<
   connectionState: "CONNECTED" | "DISCONNECTED";
   handCount: number;
   learnedMiracleCount: number;
+  lastMiracleCardDefinitionId?: string | null;
 };
 
 export type SelfPrivateView = {
@@ -116,7 +120,18 @@ export type PendingAttackView = Pick<
   | "power"
   | "hit"
 > & {
+  /** How many times this attack has been redirected so far. */
+  reactionDepth?: number;
   saleProduct: SaleProductView | null;
+};
+
+/** A buy offer awaiting the buyer's decision; public to every viewer. */
+export type PendingTradeView = {
+  tradeId: string;
+  actorId: string;
+  targetPlayerId: string;
+  offeredCardDefinitionId: string;
+  price: number;
 };
 
 export type GameViewState = {
@@ -130,6 +145,7 @@ export type GameViewState = {
   actingPlayerId: string | null;
   targetPlayerIds: string[];
   pendingAttack: PendingAttackView | null;
+  pendingTrade: PendingTradeView | null;
   players: PlayerPublicView[];
   self: SelfPrivateView | null;
   result: MatchResultView | null;

@@ -218,7 +218,11 @@ test("a sale plays the crossing swap and one payment sound", () => {
   );
   assert.ok(payment);
   const steps = presentationStepsForEvent(payment, undefined, events);
-  assert.deepEqual(steps.map(tradePresentationStage), ["SWAP", "SETTLE"]);
+  assert.deepEqual(steps.map(tradePresentationStage), [
+    "PRICE",
+    "SWAP",
+    "SETTLE"
+  ]);
 
   const transfer = events.find(({ type }) => type === "CARD_TRANSFERRED");
   assert.ok(transfer);
@@ -249,6 +253,17 @@ test("a sale plays the crossing swap and one payment sound", () => {
       queue.activeStep.endsAtMs
     );
   }
+  const priceHtml = renderBattleScreen(
+    view,
+    synchronizeUiState(initialUiState(), view),
+    {},
+    queue,
+    queue.activeStep.startedAtMs
+  );
+  assert.match(priceHtml, /data-trade-stage="PRICE"/u);
+  assert.match(priceHtml, /gf-trade-swap__coin">¥15</u);
+  queue = enqueuePresentationEvents(queue, [], view, queue.activeStep.endsAtMs);
+  assert.ok(queue.activeStep);
   const html = renderBattleScreen(
     view,
     synchronizeUiState(initialUiState(), view),
@@ -278,5 +293,218 @@ test("a purchase stamps the decision before the swap", () => {
       tradePresentationStage
     ),
     ["OFFER", "CLEAR", "STAMP", "SWAP", "SETTLE"]
+  );
+});
+
+function buyOfferEvents(
+  sellerHand: MatchState["players"][string]["hand"],
+  actorHp = 40
+): { state: MatchState; events: DomainEvent[] } {
+  const base = tradeState();
+  const state: MatchState = {
+    ...base,
+    players: {
+      ...base.players,
+      seller: { ...base.players.seller!, mp: 0, hp: actorHp },
+      buyer: { ...base.players.buyer!, hand: sellerHand }
+    }
+  };
+  const declared = handleCommand(state, {
+    type: "DECLARE_BUY",
+    matchId: state.matchId,
+    commandId: "buy-command",
+    actorId: "seller",
+    expectedRevision: state.revision,
+    cardInstanceId: "buy-card",
+    targetPlayerId: "buyer"
+  });
+  assert.ok(declared.ok && declared.state.pendingAction?.kind === "ATTACK");
+  const allowed = handleCommand(declared.state, {
+    type: "DECLARE_REACTION",
+    matchId: declared.state.matchId,
+    commandId: "offer-allowed",
+    actorId: "buyer",
+    expectedRevision: declared.state.revision,
+    reactionId: declared.state.pendingAction.attack.reactionId,
+    defenseCardInstanceIds: []
+  });
+  assert.ok(allowed.ok);
+  return {
+    state: allowed.state,
+    events: [...declared.events, ...allowed.events]
+  };
+}
+
+test("a buy offer and its refusal are shown to every viewer", () => {
+  const { state, events } = buyOfferEvents([
+    {
+      instanceId: "offered",
+      cardDefinitionId: "sword-shield",
+      dreamDisguiseCardDefinitionId: "leather-cap"
+    }
+  ]);
+  const offer = events.find(({ type }) => type === "TRADE_OFFERED");
+  assert.ok(offer?.type === "TRADE_OFFERED");
+  assert.equal(offer.visibility.scope, "PUBLIC");
+  assert.equal(offer.offeredCardDefinitionId, "sword-shield");
+  assert.equal(offer.dreamRevealed, true);
+  assert.equal(
+    state.players.buyer?.hand[0]?.dreamDisguiseCardDefinitionId,
+    null
+  );
+
+  for (const viewerId of ["seller", "buyer", null]) {
+    const view = projectGameView(state, viewerId);
+    assert.deepEqual(view.pendingTrade, {
+      tradeId: "buy-command",
+      actorId: "seller",
+      targetPlayerId: "buyer",
+      offeredCardDefinitionId: "sword-shield",
+      price: 15
+    });
+    const html = renderBattleScreen(
+      view,
+      synchronizeUiState(initialUiState(), view)
+    );
+    assert.match(html, /gf-trade-swap__product[^>]*>[\s\S]*?ソードシールド/u);
+  }
+
+  const buyerView = projectGameView(state, "seller");
+  const confirmHtml = renderBattleScreen(
+    buyerView,
+    synchronizeUiState(initialUiState(), buyerView)
+  );
+  assert.match(confirmHtml, /data-confirm-buy/u);
+  assert.doesNotMatch(confirmHtml, /gf-trade-offer__effect|支払い順/u);
+
+  const declined = handleCommand(state, {
+    type: "CONFIRM_BUY",
+    matchId: state.matchId,
+    commandId: "decline",
+    actorId: "seller",
+    expectedRevision: state.revision,
+    tradeId: "buy-command",
+    accept: false
+  });
+  assert.ok(declined.ok);
+  const resolution = declined.events.find(
+    ({ type }) => type === "TRADE_RESOLVED"
+  );
+  assert.ok(resolution);
+  const spectator = projectGameView(declined.state, null);
+  assert.equal(spectator.pendingTrade, null);
+  const projected = [...events, ...declined.events].flatMap(
+    (event) => projectDomainEvent(event, null) ?? []
+  );
+  let queue = enqueuePresentationEvents(
+    createPresentationQueue(),
+    projected,
+    spectator,
+    0
+  );
+  while (
+    queue.activeStep &&
+    queue.activeStep.step.event.eventSeq !== resolution.eventSeq
+  ) {
+    queue = enqueuePresentationEvents(
+      queue,
+      [],
+      spectator,
+      queue.activeStep.endsAtMs
+    );
+  }
+  assert.ok(queue.activeStep);
+  const html = renderBattleScreen(
+    spectator,
+    synchronizeUiState(initialUiState(), spectator),
+    {},
+    queue,
+    queue.activeStep.startedAtMs
+  );
+  assert.match(html, /data-result="trade-notice"[\s\S]*?<strong>買わない<\/strong>/u);
+});
+
+test("an unaffordable buy offer closes with 貧乏 for everyone", () => {
+  const base = buyOfferEvents([
+    {
+      instanceId: "offered",
+      cardDefinitionId: "sword-shield",
+      dreamDisguiseCardDefinitionId: null
+    }
+  ], 5);
+  const resolved = base.events.find(({ type }) => type === "TRADE_RESOLVED");
+  assert.ok(resolved?.type === "TRADE_RESOLVED");
+  assert.equal(resolved.visibility.scope, "PUBLIC");
+  assert.equal(resolved.resolution, "INSUFFICIENT_RESOURCES");
+  const view = projectGameView(base.state, "buyer");
+  let queue = enqueuePresentationEvents(
+    createPresentationQueue(),
+    base.events.flatMap((event) => projectDomainEvent(event, "buyer") ?? []),
+    view,
+    0
+  );
+  while (
+    queue.activeStep &&
+    queue.activeStep.step.event.type !== "TRADE_RESOLVED"
+  ) {
+    queue = enqueuePresentationEvents(
+      queue,
+      [],
+      view,
+      queue.activeStep.endsAtMs
+    );
+  }
+  assert.ok(queue.activeStep);
+  const html = renderBattleScreen(
+    view,
+    synchronizeUiState(initialUiState(), view),
+    {},
+    queue,
+    queue.activeStep.startedAtMs
+  );
+  assert.match(html, /<strong>貧乏<\/strong>/u);
+  assert.match(html, /ソードシールド/u);
+});
+
+test("guardian theft moves a coin and a money phenomenon collects at once", () => {
+  const guardianTheft = {
+    type: "RESOURCE_CHANGED",
+    playerId: "buyer",
+    resource: "MONEY",
+    delta: -5,
+    valueAfter: 25,
+    reason: "GUARDIAN",
+    eventSeq: 3
+  } as unknown as DomainEvent;
+  assert.deepEqual(
+    presentationStepsForEvent(guardianTheft).map((step) => [
+      step.kind,
+      tradePresentationStage(step)
+    ]),
+    [
+      ["TRADE", "PRICE"],
+      ["TRADE", "SWAP"],
+      ["TRADE", "SETTLE"]
+    ]
+  );
+
+  const collected = [10, 11, 12].map(
+    (eventSeq) =>
+      ({
+        type: "RESOURCE_CHANGED",
+        playerId: `p${eventSeq}`,
+        resource: "MONEY",
+        delta: eventSeq === 12 ? 40 : -20,
+        valueAfter: eventSeq === 12 ? 60 : 0,
+        reason: "PHENOMENON",
+        eventSeq
+      }) as unknown as DomainEvent
+  );
+  assert.deepEqual(
+    collected.map(
+      (event) =>
+        presentationStepsForEvent(event, undefined, collected)[0]?.durationMs
+    ),
+    [500, 0, 0]
   );
 });

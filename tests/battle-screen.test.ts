@@ -163,6 +163,7 @@ test("match result keeps the final board, shows the winner to a losing viewer, a
   assert.match(html, />戦いを終わる<\/a>/u);
   for (const button of html.match(/<button[\s\S]*?<\/button>/gu) ?? []) {
     if (button.includes("data-sound-mute")) continue;
+    if (button.includes("data-toggle-cast-miracles")) continue;
     assert.match(button, /\sdisabled(?:\s|>)/u);
   }
   assert.match(BATTLE_SCREEN_STYLES, /\.gf-result\s*\{[\s\S]*?position: fixed/u);
@@ -208,6 +209,64 @@ test("draw result is restored for a spectator without a winner name", () => {
   assert.doesNotMatch(html, /class="gf-result__winner"/u);
 });
 
+test("result stays hidden until the ascension presentation has finished", () => {
+  const original = createMatch({
+    matchId: "result-after-ascension",
+    seed: "result-after-ascension-seed",
+    players: [
+      { playerId: "a", displayName: "Alice" },
+      { playerId: "b", displayName: "Bob" }
+    ]
+  }).state;
+  const state: MatchState = {
+    ...original,
+    phase: "MATCH_ENDED",
+    activePlayerId: null,
+    pendingAction: null,
+    inputDeadlineAt: null,
+    result: { kind: "WIN", winnerPlayerIds: ["b"], winnerTeamId: null }
+  };
+  const view = projectGameView(state, "a");
+  const ui = synchronizeUiState(initialUiState(), view);
+  const events = [
+    {
+      type: "PLAYER_ASCENDED",
+      eventSeq: 10,
+      revision: 10,
+      occurredAt: "2026-07-26T00:00:00.000Z",
+      visibility: { scope: "PUBLIC" },
+      playerId: "a",
+      reason: "DAMAGE"
+    },
+    {
+      type: "MATCH_ENDED",
+      eventSeq: 11,
+      revision: 11,
+      occurredAt: "2026-07-26T00:00:00.000Z",
+      visibility: { scope: "PUBLIC" },
+      result: view.result
+    }
+  ] as unknown as DomainEvent[];
+  const queued = enqueuePresentationEvents(
+    createPresentationQueue(),
+    events,
+    view,
+    0
+  );
+
+  assert.equal(queued.activeStep?.step.kind, "ASCENSION");
+  assert.match(
+    renderBattleScreen(view, ui, {}, queued, 0),
+    /<section\s+class="gf-result"\s+data-region="result"\s+aria-labelledby="gf-result-title"\s+hidden/u
+  );
+  const resultBeat = advancePresentationClock(queued, 500);
+  assert.equal(resultBeat.activeStep?.step.kind, "RESULT");
+  assert.match(
+    renderBattleScreen(view, ui, {}, resultBeat, 500),
+    /data-result-kind="WIN"/u
+  );
+});
+
 test("online input renders the server deadline and closes at the boundary", () => {
   const state = createMatch({
     matchId: "screen-deadline",
@@ -236,8 +295,9 @@ test("online input renders the server deadline and closes at the boundary", () =
 
   assert.match(beforeDeadline, /data-input-deadline="2026-07-26T00:00:15.000Z"/u);
   assert.match(beforeDeadline, /data-remaining-seconds="10"/u);
-  assert.match(beforeDeadline, /残り 10秒/u);
-  assert.match(beforeDeadline, /時間切れ後はCPUが代行します/u);
+  assert.match(beforeDeadline, /gf-input-status__bar/u);
+  assert.match(beforeDeadline, /--gf-deadline-elapsed: -20000ms/u);
+  assert.doesNotMatch(beforeDeadline, /<time/u);
 
   const atDeadline = renderBattleScreen(
     view,
@@ -247,7 +307,7 @@ test("online input renders the server deadline and closes at the boundary", () =
     Date.parse(deadlineAt)
   );
   assert.match(atDeadline, /data-ui-mode="RESOLVING"/u);
-  assert.match(atDeadline, /入力期限が切れました/u);
+  assert.doesNotMatch(atDeadline, /入力期限が切れました/u);
   assert.doesNotMatch(atDeadline, /data-input-deadline=/u);
 });
 
@@ -317,9 +377,8 @@ test("disconnected and reconnected CPU control are both explicit", () => {
   );
   assert.match(disconnectedHtml, /data-self-controller="CPU"/u);
   assert.match(disconnectedHtml, /data-self-connection="DISCONNECTED"/u);
-  assert.match(disconnectedHtml, /CPU代行/u);
+  assert.doesNotMatch(disconnectedHtml, /代行/u);
   assert.match(disconnectedHtml, /切断/u);
-  assert.match(disconnectedHtml, /接続が切れたため、CPUが操作を代行しています/u);
 
   const reconnectedView = cpuView("CONNECTED");
   const reconnectedUi = synchronizeUiState(
@@ -337,7 +396,7 @@ test("disconnected and reconnected CPU control are both explicit", () => {
     reconnectedUi
   );
   assert.match(reconnectedHtml, /data-self-connection="CONNECTED"/u);
-  assert.match(reconnectedHtml, /再接続済みですが、操作権はCPUのままです/u);
+  assert.doesNotMatch(reconnectedHtml, /代行|CPUのまま/u);
   assert.doesNotMatch(reconnectedHtml, />切断</u);
   assert.match(reconnectedHtml, /data-ui-mode="WAITING"/u);
 });
@@ -372,6 +431,30 @@ test("battle screen keeps opponent private cards out of its rendering input", ()
   assert.equal(html.includes("private-card-instance"), false);
   assert.equal(html.includes("private-card-definition"), false);
   assert.match(html, /手札 1枚/u);
+});
+
+test("calamities are listed under the player name and long names pick a smaller size tier", () => {
+  const state = createMatch({
+    matchId: "calamity-name",
+    seed: "calamity-name-seed",
+    players: [
+      { playerId: "a", displayName: "gay trickshot" },
+      { playerId: "b", displayName: "あきひろTRICKSHOT長い名前" }
+    ]
+  }).state;
+  const sick = state.players["a"];
+  assert.ok(sick);
+  sick.calamities = { ...sick.calamities, FEVER: true, FOG: true };
+  const html = renderMatch(state, "a");
+
+  assert.match(html, /data-calamity="FEVER">熱病</u);
+  assert.match(html, /data-calamity="FOG">霧</u);
+  assert.match(
+    html,
+    /data-slot="4"><span class="gf-calamity-chip" data-calamity="FEVER"/u
+  );
+  assert.match(html, /data-name-size="0">gay trickshot</u);
+  assert.match(html, /data-name-size="3">あきひろTRICKSHOT長い名前</u);
 });
 
 test("battle screen escapes player names and rejects unsafe navigation URLs", () => {
@@ -665,8 +748,8 @@ test("action UI renders selectable sources, targets, preview values, and an enab
   const view = projectGameView(state, actorId);
   let ui = synchronizeUiState(initialUiState(), view);
   const initialHtml = renderBattleScreen(view, ui);
-  assert.match(initialHtml, /data-utility-form="SURRENDER"/u);
-  assert.match(initialHtml, />降参する<\/button>/u);
+  assert.doesNotMatch(initialHtml, /data-open-utility="SURRENDER"/u);
+  assert.doesNotMatch(initialHtml, />降参<\/button>/u);
   ui = selectActionCard(ui, "screen-bronze", view);
   ui = selectActionCard(ui, "screen-blowgun", view);
   const html = renderBattleScreen(view, ui);
@@ -1862,6 +1945,113 @@ test("forgive and calamity follow the recorded combat timing", () => {
   assert.equal(settled.activeStep, null);
 });
 
+test("a deflected attack shows the notice, then slides the attack card to the other side", () => {
+  const state = createMatch({
+    matchId: "deflect-presentation",
+    seed: "deflect-presentation-seed",
+    players: [
+      { playerId: "attacker", displayName: "Attacker" },
+      { playerId: "defender", displayName: "Defender" }
+    ]
+  }).state;
+  const actorId = state.activePlayerId;
+  assert.ok(actorId);
+  const targetId = state.turnOrder.find((playerId) => playerId !== actorId);
+  assert.ok(targetId);
+  const baseEvent = {
+    revision: 1,
+    occurredAt: "2026-07-27T00:00:00.000Z",
+    visibility: { scope: "PUBLIC" as const }
+  };
+  const events = [
+    {
+      ...baseEvent,
+      type: "ATTACK_CREATED",
+      eventSeq: 1,
+      attack: {
+        attackId: "deflect-attack",
+        reactionId: "deflect-attack:reaction:0",
+        reactionDepth: 0,
+        seriesId: "deflect-series",
+        attackNumber: 1,
+        totalAttacks: 1,
+        targetIndex: 0,
+        totalTargets: 1,
+        attackKind: "WEAPON",
+        actorId,
+        targetPlayerId: targetId,
+        sourceCardInstanceIds: ["deflect-card"],
+        sourceLearnedMiracleIds: [],
+        sourceCardDefinitionIds: ["severe-gale-sword"],
+        element: "AIR",
+        power: 5,
+        hit: true
+      },
+      actionOwnerId: actorId,
+      targetPlayerIds: [targetId],
+      hitRate: 100,
+      attackerGrantCount: 1,
+      completion: "FINISH_TURN"
+    },
+    {
+      ...baseEvent,
+      type: "REACTION_DECLARED",
+      eventSeq: 2,
+      reactionId: "deflect-attack:reaction:0",
+      playerId: targetId,
+      defenseCardInstanceIds: ["shield"],
+      defenseLearnedMiracleIds: [],
+      defenseCardDefinitionIds: ["leather-clothes"]
+    },
+    {
+      ...baseEvent,
+      type: "ATTACK_REDIRECTED",
+      eventSeq: 3,
+      attackId: "deflect-attack",
+      reactionId: "deflect-attack:reaction:1",
+      actorId: targetId,
+      targetPlayerId: actorId,
+      reactionDepth: 1,
+      redirectType: "REFLECT"
+    }
+  ] as DomainEvent[];
+  const view = projectGameView(state, actorId);
+  const ui = synchronizeUiState(initialUiState(), view);
+  const queued = enqueuePresentationEvents(
+    createPresentationQueue(),
+    events,
+    view,
+    0
+  );
+
+  // Defense card appears on its own beat, with no notice yet.
+  const cardPresentation = advancePresentationClock(queued, 500);
+  const cardHtml = renderBattleScreen(view, ui, {}, cardPresentation);
+  assert.match(cardHtml, /class="gf-action__content"\s+data-attack-side="left"/u);
+  assert.match(cardHtml, /class="[^"]*gf-field-card--defense/u);
+  assert.doesNotMatch(cardHtml, /<div\s+class="gf-action__result"\s+data-result="deflect"/u);
+
+  // The notice sits on the defense column while the defender's card stays up.
+  const noticePresentation = advancePresentationClock(cardPresentation, 1_000);
+  const noticeHtml = renderBattleScreen(view, ui, {}, noticePresentation);
+  assert.match(noticeHtml, /class="gf-action__content"\s+data-attack-side="left"/u);
+  assert.match(noticeHtml, /data-result="deflect"\s+data-placement="defense-right"[^>]*>\s*<strong>弾いた<\/strong>/u);
+  assert.match(noticeHtml, /class="[^"]*gf-field-card--defense/u);
+  assert.doesNotMatch(noticeHtml, /data-redirect-move="true"/u);
+
+  // The defense card is gone and the attack card slides to the new actor's side.
+  const movePresentation = advancePresentationClock(noticePresentation, 2_000);
+  const moveHtml = renderBattleScreen(view, ui, {}, movePresentation);
+  assert.match(moveHtml, /class="gf-action__content"\s+data-attack-side="left"/u);
+  assert.match(moveHtml, /data-redirect-move="true"/u);
+  assert.doesNotMatch(moveHtml, /<div\s+class="gf-action__result"\s+data-result="deflect"/u);
+  assert.doesNotMatch(moveHtml, /class="[^"]*gf-field-card--defense/u);
+  assert.match(
+    BATTLE_SCREEN_STYLES,
+    /\.gf-action__stack\[data-redirect-move\]\s*\{[\s\S]*?gf-redirect-slide/u
+  );
+});
+
 test("disease damage uses the target-side red HP delta overlay for 1,000ms", () => {
   const state = createMatch({
     matchId: "disease-delta-presentation",
@@ -2690,4 +2880,155 @@ test("hidden brawl header shows its mode label and an exit action", () => {
   assert.match(html, /gf-header__mode">隠れ乱闘</u);
   assert.match(html, /data-exit-battle/u);
   assert.doesNotMatch(renderBattleScreen(view, ui), /data-exit-battle/u);
+});
+
+test("guardian assignment shows summon art, then a portrait chip on the name plate", () => {
+  const state = createMatch({
+    matchId: "guardian-screen",
+    seed: "guardian-screen-seed",
+    mode: "TRAINING",
+    players: [
+      { playerId: "a", displayName: "Alice" },
+      { playerId: "b", displayName: "Bob" }
+    ]
+  }).state;
+  const guardian = { guardianId: "g1", guardianName: "火星神" };
+  const hosted: MatchState = {
+    ...state,
+    players: {
+      ...state.players,
+      a: { ...state.players.a!, guardian }
+    }
+  };
+  const view = projectGameView(hosted, "a");
+  const ui = synchronizeUiState(initialUiState(), view);
+  const plain = renderBattleScreen(view, ui);
+  assert.match(
+    plain,
+    /class="gf-player__guardian"[\s\S]*?gf-player__guardian-name">火星神</u
+  );
+  assert.doesNotMatch(plain, /data-guardian-summon=/u);
+
+  const presentation = enqueuePresentationEvents(
+    createPresentationQueue(),
+    [
+      {
+        type: "GUARDIAN_ASSIGNED",
+        eventSeq: 1,
+        playerId: "a",
+        guardian
+      } as DomainEvent
+    ],
+    view,
+    0
+  );
+  const html = renderBattleScreen(view, ui, {}, presentation);
+  assert.match(html, /data-guardian-summon="a"/u);
+  assert.match(html, /<img[^>]*class="gf-guardian-summon__art"/u);
+  assert.match(html, /火星神が宿りました/u);
+  assert.match(html, /class="gf-player__guardian"[^>]*data-intro="true"/u);
+});
+
+test("hovering a card shows its staged-size detail card in the right panel", () => {
+  const state = createMatch({
+    matchId: "hover-detail",
+    seed: "hover-detail-seed",
+    mode: "ONLINE",
+    endTimeThreshold: 50,
+    players: [
+      { playerId: "a", displayName: "Alice" },
+      { playerId: "b", displayName: "Bob" }
+    ]
+  }).state;
+  const actorId = state.activePlayerId;
+  assert.ok(actorId);
+  const view = projectGameView(state, actorId);
+  const ui = synchronizeUiState(initialUiState(), view);
+  const cardDefinitionId = view.self?.hand[0]?.cardDefinitionId;
+  assert.ok(cardDefinitionId);
+
+  assert.doesNotMatch(renderBattleScreen(view, ui), /data-card-detail/u);
+  const html = renderBattleScreen(
+    view,
+    ui,
+    {},
+    null,
+    Date.now(),
+    cardDefinitionId
+  );
+  const detail = html.slice(html.indexOf("<div class=\"gf-card-detail\""));
+  assert.match(detail, /^<div class="gf-card-detail" data-card-detail[^>]*>[\r\n ]*<article/u);
+  assert.ok(
+    detail
+      .slice(0, detail.indexOf("</div>"))
+      .includes(`data-card-definition-id="${cardDefinitionId}"`)
+  );
+});
+
+test("cast-miracle toggle shows every player's last invoked miracle instead of resources", () => {
+  const state = createMatch({
+    matchId: "cast-miracles",
+    seed: "cast-miracles-seed",
+    mode: "ONLINE",
+    endTimeThreshold: 50,
+    players: [
+      { playerId: "a", displayName: "Alice" },
+      { playerId: "b", displayName: "Bob" }
+    ]
+  }).state;
+  state.players.a!.lastMiracleCardDefinitionId = "miracle-sun-amulet";
+  const view = projectGameView(state, "b");
+  const ui = synchronizeUiState(initialUiState(), view);
+  const alice = view.players.find(({ playerId }) => playerId === "a");
+  assert.equal(alice?.lastMiracleCardDefinitionId, "miracle-sun-amulet");
+  assert.equal(
+    view.players.find(({ playerId }) => playerId === "b")
+      ?.lastMiracleCardDefinitionId,
+    null
+  );
+
+  const off = renderBattleScreen(view, ui);
+  assert.match(off, /data-toggle-cast-miracles\s+aria-pressed="false"/u);
+  assert.doesNotMatch(off, /class="gf-cast-miracle"/u);
+
+  const on = renderBattleScreen(view, ui, {}, null, Date.now(), null, true);
+  assert.match(on, /data-toggle-cast-miracles\s+aria-pressed="true"/u);
+  assert.equal(on.match(/class="gf-cast-miracle"/gu)?.length, 2);
+  assert.equal(on.match(/class="gf-cast-miracle" data-empty/gu)?.length, 1);
+});
+
+test("learned miracles stay pinned in the hand's bottom-right cells", () => {
+  const state = createMatch({
+    matchId: "pinned-miracles",
+    seed: "pinned-miracles-seed",
+    mode: "ONLINE",
+    endTimeThreshold: 50,
+    players: [
+      { playerId: "a", displayName: "Alice" },
+      { playerId: "b", displayName: "Bob" }
+    ]
+  }).state;
+  state.players.a!.learnedMiracles = [
+    {
+      learnedMiracleId: "m1:learned",
+      cardDefinitionId: "miracle-sun-amulet",
+      learnedAtEventSeq: 1
+    } as never,
+    {
+      learnedMiracleId: "m2:learned",
+      cardDefinitionId: "miracle-sun-amulet",
+      learnedAtEventSeq: 2
+    } as never
+  ];
+  const view = projectGameView(state, "a");
+  const html = renderBattleScreen(view, synchronizeUiState(initialUiState(), view));
+  const hand = html.slice(html.indexOf('data-region="hand"'));
+  const handList = hand.slice(0, hand.indexOf("</ul>"));
+  assert.equal(handList.match(/gf-card--miracle/gu)?.length, 2);
+  assert.match(handList, /--gf-miracle-slot: 0/u);
+  assert.match(handList, /--gf-miracle-slot: 1/u);
+  assert.doesNotMatch(
+    html.slice(html.indexOf('data-region="miracles"'), html.indexOf('data-region="hand"')),
+    /gf-card--miracle/u
+  );
 });

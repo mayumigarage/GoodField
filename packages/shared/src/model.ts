@@ -71,6 +71,8 @@ export type PlayerState = {
   money: number;
   hand: CardInstance[];
   learnedMiracles: LearnedMiracle[];
+  /** Most recent miracle this player invoked; public, shown on request. */
+  lastMiracleCardDefinitionId?: string | null;
   calamities: CalamityState;
   guardian: GuardianState | null;
   disconnected: boolean;
@@ -327,6 +329,9 @@ export type DomainEvent =
       actorId: string;
       targetPlayerId: string;
       offeredCardInstanceId: string;
+      /** The offer is public; a dream disguise is lifted when offered. */
+      offeredCardDefinitionId: string;
+      dreamRevealed: boolean;
       price: number;
       canAfford: boolean;
       inputDeadlineAt: string | null;

@@ -11,6 +11,7 @@ import {
   DEMON_GRANT_POOL,
   NORMAL_GRANT_POOL,
   STANDARD_CARD_DEFINITIONS,
+  attackStandsAlone,
   instructionsOfKind
 } from "../../shared/src/cards.ts";
 import {
@@ -260,7 +261,8 @@ export function applyEvent(state: MatchState, event: DomainEvent): MatchState {
       next = replacePlayer(next, event.playerId, (player) => ({
         ...player,
         hand: player.hand.filter(({ instanceId }) => instanceId !== event.cardInstanceId),
-        learnedMiracles: [...player.learnedMiracles, { ...event.miracle }]
+        learnedMiracles: [...player.learnedMiracles, { ...event.miracle }],
+        lastMiracleCardDefinitionId: event.miracle.cardDefinitionId
       }));
       if (next.pendingAction?.kind === "ATTACK") {
         return updatePendingAttack(next, (pending) => ({
@@ -278,7 +280,10 @@ export function applyEvent(state: MatchState, event: DomainEvent): MatchState {
       }
       return next;
     case "MIRACLE_CAST":
-      return next;
+      return replacePlayer(next, event.playerId, (player) => ({
+        ...player,
+        lastMiracleCardDefinitionId: event.cardDefinitionId
+      }));
     case "MP_SPENT":
       return replacePlayer(next, event.playerId, (player) => ({
         ...player,
@@ -308,6 +313,16 @@ export function applyEvent(state: MatchState, event: DomainEvent): MatchState {
         money: clampResource(event.moneyAfter)
       }));
     case "TRADE_OFFERED":
+      if (event.dreamRevealed) {
+        next = replacePlayer(next, event.targetPlayerId, (player) => ({
+          ...player,
+          hand: player.hand.map((card) =>
+            card.instanceId === event.offeredCardInstanceId
+              ? { ...card, dreamDisguiseCardDefinitionId: null }
+              : card
+          )
+        }));
+      }
       return {
         ...next,
         phase: "TRADE_CONFIRMATION",
@@ -352,13 +367,14 @@ export function applyEvent(state: MatchState, event: DomainEvent): MatchState {
         hand: [...player.hand, { ...event.card }]
       }));
     case "CALAMITY_APPLIED":
-      return replacePlayer(next, event.playerId, (player) => ({
-        ...player,
-        calamities: {
-          ...player.calamities,
-          [event.calamity]: true
+      return replacePlayer(next, event.playerId, (player) => {
+        const calamities = { ...player.calamities };
+        if (DISEASE_ORDER.includes(event.calamity)) {
+          for (const disease of DISEASE_ORDER) delete calamities[disease];
         }
-      }));
+        calamities[event.calamity] = true;
+        return { ...player, calamities };
+      });
     case "CALAMITIES_REMOVED":
       return replacePlayer(next, event.playerId, (player) => {
         const calamities = { ...player.calamities };
@@ -654,11 +670,31 @@ export function applyEvent(state: MatchState, event: DomainEvent): MatchState {
         ...next,
         inputDeadlineAt: null
       };
-    case "PLAYER_CONNECTION_CHANGED":
-      return replacePlayer(next, event.playerId, (player) => ({
+    case "PLAYER_CONNECTION_CHANGED": {
+      const reconnected = event.connectionState === "CONNECTED";
+      const wasTakenOver =
+        reconnected &&
+        next.players[event.playerId]?.controller === "CPU" &&
+        next.players[event.playerId]?.disconnected === true;
+      next = replacePlayer(next, event.playerId, (player) => ({
         ...player,
-        disconnected: event.connectionState === "DISCONNECTED"
+        // A human seat taken over by CPU after a timeout/disconnect gets its
+        // controls back as soon as the player reconnects.
+        controller: wasTakenOver ? "HUMAN" : player.controller,
+        disconnected: !reconnected
       }));
+      if (
+        wasTakenOver &&
+        next.inputDeadlineAt === null &&
+        pendingInputPlayerId(next) === event.playerId
+      ) {
+        return {
+          ...next,
+          inputDeadlineAt: deadlineFor(next, event.playerId, event.occurredAt)
+        };
+      }
+      return next;
+    }
     case "TURN_CLOSED":
       return {
         ...next,
@@ -1902,18 +1938,14 @@ function handleConfirmBuy(
     return fail(context.state, "INVALID_TRADE", "The offered artifact no longer exists");
   }
   if (!command.accept) {
-    emit(
-      context,
-      {
-        type: "TRADE_RESOLVED",
-        tradeId: pending.tradeId,
-        actorId: pending.actorId,
-        targetPlayerId: pending.targetPlayerId,
-        offeredCardInstanceId: pending.offeredCardInstanceId,
-        resolution: "DECLINED"
-      },
-      playerVisibility(command.actorId)
-    );
+    emit(context, {
+      type: "TRADE_RESOLVED",
+      tradeId: pending.tradeId,
+      actorId: pending.actorId,
+      targetPlayerId: pending.targetPlayerId,
+      offeredCardInstanceId: pending.offeredCardInstanceId,
+      resolution: "DECLINED"
+    });
     resolveNormalGrant(context, command.actorId, "CARD_USED");
     finishTurn(context, command.actorId);
     return null;
@@ -2609,37 +2641,31 @@ function resolveDeferredTargetedCardEffect(
         resolveNormalGrant(context, playerId, "DEFENSE_USED");
       }
     }
-    emit(
-      context,
-      {
-        type: "TRADE_OFFERED",
+    emit(context, {
+      type: "TRADE_OFFERED",
+      tradeId: effect.tradeId,
+      actorId: actionOwnerId,
+      targetPlayerId,
+      offeredCardInstanceId: offered.instanceId,
+      offeredCardDefinitionId: offered.cardDefinitionId,
+      dreamRevealed: offered.dreamDisguiseCardDefinitionId !== null,
+      price,
+      canAfford,
+      inputDeadlineAt: deadlineFor(
+        context.state,
+        actionOwnerId,
+        context.occurredAt
+      )
+    });
+    if (!canAfford) {
+      emit(context, {
+        type: "TRADE_RESOLVED",
         tradeId: effect.tradeId,
         actorId: actionOwnerId,
         targetPlayerId,
         offeredCardInstanceId: offered.instanceId,
-        price,
-        canAfford,
-        inputDeadlineAt: deadlineFor(
-          context.state,
-          actionOwnerId,
-          context.occurredAt
-        )
-      },
-      playerVisibility(actionOwnerId)
-    );
-    if (!canAfford) {
-      emit(
-        context,
-        {
-          type: "TRADE_RESOLVED",
-          tradeId: effect.tradeId,
-          actorId: actionOwnerId,
-          targetPlayerId,
-          offeredCardInstanceId: offered.instanceId,
-          resolution: "INSUFFICIENT_RESOURCES"
-        },
-        playerVisibility(actionOwnerId)
-      );
+        resolution: "INSUFFICIENT_RESOURCES"
+      });
       resolveNormalGrant(context, actionOwnerId, "CARD_USED");
       finishTurn(context, actionOwnerId);
     }
@@ -2829,7 +2855,10 @@ function applyCalamityEffect(
     return;
   }
   const currentDisease = currentDiseaseOf(player);
-  if (currentDisease === null) {
+  if (
+    currentDisease === null ||
+    DISEASE_ORDER.indexOf(calamity) > DISEASE_ORDER.indexOf(currentDisease)
+  ) {
     emit(context, { type: "CALAMITY_APPLIED", playerId, calamity });
     return;
   }
@@ -3168,10 +3197,8 @@ function automaticActionCandidates(
   for (const card of player.hand) {
     const definition = CARD_DEFINITIONS_BY_ID.get(card.cardDefinitionId);
     if (!definition) continue;
-    const primaryAttack = instructionsOfKind(definition, "ATTACK")[0];
     if (
-      primaryAttack &&
-      !primaryAttack.additive &&
+      attackStandsAlone(definition) &&
       (definition.mpCost ?? 0) <= player.mp
     ) {
       candidates.push({
@@ -4265,6 +4292,9 @@ function handleDeclareAction(
       ({ definition, learnedMiracleId }) =>
         (!["WEAPON", "MIRACLE"].includes(definition.category) &&
           !(
+            definition.category === "ARMOR" && attackStandsAlone(definition)
+          ) &&
+          !(
             definition.category === "GOODS" &&
             (instructionsOfKind(definition, "ATTACK").some(
               ({ additive }) => additive
@@ -4303,18 +4333,25 @@ function handleDeclareAction(
     );
   }
   const primaryCount = attacks.filter((attack) => attack && !attack.additive).length;
-  if (primaryCount !== 1) {
+  // Ogre armor is additive, but may also carry an attack by itself when no
+  // other primary attack is selected.
+  const armorOnlyAttack =
+    primaryCount === 0 &&
+    sources.some(({ definition }) => attackStandsAlone(definition));
+  if (primaryCount !== 1 && !armorOnlyAttack) {
     return fail(
       context.state,
       "INVALID_CARD_SELECTION",
       "Select exactly one primary attack and zero or more additive attacks"
     );
   }
-  const primarySource = sources.find(({ definition }) => {
-    const attack = instructionsOfKind(definition, "ATTACK")[0];
-    return attack && !attack.additive;
-  });
-  if (!primarySource) {
+  const primaryDefinition = (
+    sources.find(({ definition }) => {
+      const attack = instructionsOfKind(definition, "ATTACK")[0];
+      return attack && !attack.additive;
+    }) ?? sources.find(({ definition }) => attackStandsAlone(definition))
+  )?.definition;
+  if (!primaryDefinition) {
     return fail(context.state, "INVALID_CARD_SELECTION", "Primary attack is missing");
   }
 
@@ -4472,7 +4509,7 @@ function handleDeclareAction(
     power,
     hitRate,
     attackKind:
-      primarySource.definition.category === "MIRACLE" ? "MIRACLE" : "WEAPON",
+      primaryDefinition.category === "MIRACLE" ? "MIRACLE" : "WEAPON",
     totalAttacks,
     attackerGrantCount: selectedCards.length,
     completion: "FINISH_TURN"

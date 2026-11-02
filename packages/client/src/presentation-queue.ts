@@ -10,6 +10,8 @@ export type PresentationTimingProfile = {
   stageGapMs: number;
   attackStageMs: number;
   attackResultMs: number;
+  deflectHoldMs: number;
+  redirectMoveMs: number;
   hitResultMs: number;
   resolutionHoldMs: number;
   healingHoldMs: number;
@@ -29,6 +31,8 @@ export const OFFICIAL_WEB_2026_07_25: PresentationTimingProfile = {
   stageGapMs: 500,
   attackStageMs: 500,
   attackResultMs: 1_000,
+  deflectHoldMs: 1_000,
+  redirectMoveMs: 1_000,
   hitResultMs: 1_000,
   resolutionHoldMs: 1_000,
   healingHoldMs: 1_000,
@@ -48,6 +52,8 @@ export const OFFICIAL_WEB_2026_07_26: PresentationTimingProfile = {
   stageGapMs: 500,
   attackStageMs: 500,
   attackResultMs: 1_000,
+  deflectHoldMs: 1_000,
+  redirectMoveMs: 1_000,
   hitResultMs: 750,
   resolutionHoldMs: 500,
   healingHoldMs: 1_000,
@@ -88,6 +94,7 @@ export type TradePresentationStage =
   | "OFFER"
   | "CLEAR"
   | "STAMP"
+  | "PRICE"
   | "SWAP"
   | "SETTLE";
 
@@ -98,7 +105,13 @@ const BUY_TRADE_STAGES: readonly TradePresentationStage[] = [
   "SWAP",
   "SETTLE"
 ];
-const SELL_TRADE_STAGES: readonly TradePresentationStage[] = ["SWAP", "SETTLE"];
+// Every other ¥ transfer (sale, bounced sale, guardian theft) shows the coin
+// at the payer first, then moves it to the recipient.
+const COIN_TRADE_STAGES: readonly TradePresentationStage[] = [
+  "PRICE",
+  "SWAP",
+  "SETTLE"
+];
 
 export function tradePresentationStage(
   step: Pick<PresentationStep, "stageIndex" | "stageCount">
@@ -106,8 +119,29 @@ export function tradePresentationStage(
   const stages =
     step.stageCount === BUY_TRADE_STAGES.length
       ? BUY_TRADE_STAGES
-      : SELL_TRADE_STAGES;
+      : COIN_TRADE_STAGES;
   return stages[step.stageIndex] ?? "SETTLE";
+}
+
+function tradeStageDuration(
+  stage: TradePresentationStage,
+  profile: PresentationTimingProfile
+): number {
+  return stage === "OFFER"
+    ? profile.tradeOfferHoldMs
+    : stage === "SWAP"
+      ? profile.tradeSwapMs
+      : stage === "SETTLE"
+        ? profile.tradeSettleMs
+        : profile.stageGapMs;
+}
+
+function isPhenomenonMoneyChange(event: DomainEvent | undefined): boolean {
+  return (
+    event?.type === "RESOURCE_CHANGED" &&
+    event.resource === "MONEY" &&
+    event.reason === "PHENOMENON"
+  );
 }
 
 export type PresentationStep = {
@@ -220,8 +254,14 @@ function definitionsForEvent(
       }
       return [{ kind: "ACTION", durationMs: profile.stageGapMs }];
     case "ATTACK_CREATED":
-    case "ATTACK_REDIRECTED":
       return [{ kind: "TARGET", durationMs: profile.attackStageMs }];
+    case "ATTACK_REDIRECTED":
+      // The defender's card stays up under the "deflected" notice, then the
+      // attack card slides to the new actor's side.
+      return [
+        { kind: "REACTION", durationMs: profile.deflectHoldMs },
+        { kind: "TARGET", durationMs: profile.redirectMoveMs }
+      ];
     case "HIT_ROLLED":
       return event.hitRate < 100
         ? [{ kind: "HIT_RESULT", durationMs: profile.hitResultMs }]
@@ -243,6 +283,31 @@ function definitionsForEvent(
         }
       ];
     case "RESOURCE_CHANGED":
+      if (
+        event.resource === "MONEY" &&
+        event.reason === "GUARDIAN" &&
+        event.delta < 0
+      ) {
+        return COIN_TRADE_STAGES.map((stage) => ({
+          kind: "TRADE",
+          durationMs: tradeStageDuration(stage, profile)
+        }));
+      }
+      if (isPhenomenonMoneyChange(event)) {
+        // Everybody's money is collected at once: one notice for the whole
+        // collection, then every balance changes together.
+        const previous = priorEvents.find(
+          ({ eventSeq }) => eventSeq === event.eventSeq - 1
+        );
+        return [
+          {
+            kind: "AUTOMATIC_EFFECT",
+            durationMs: isPhenomenonMoneyChange(previous)
+              ? 0
+              : profile.resolutionHoldMs
+          }
+        ];
+      }
       if (
         (event.resource === "HP" || event.resource === "MP") &&
         event.delta !== 0 &&
@@ -287,17 +352,10 @@ function definitionsForEvent(
     case "TRADE_PAYMENT_COLLECTED": {
       const stages = isBuyTrade(event, priorEvents)
         ? BUY_TRADE_STAGES
-        : SELL_TRADE_STAGES;
+        : COIN_TRADE_STAGES;
       return stages.map((stage) => ({
         kind: "TRADE",
-        durationMs:
-          stage === "OFFER"
-            ? profile.tradeOfferHoldMs
-            : stage === "SWAP"
-              ? profile.tradeSwapMs
-              : stage === "SETTLE"
-                ? profile.tradeSettleMs
-                : profile.stageGapMs
+        durationMs: tradeStageDuration(stage, profile)
       }));
     }
     case "REVIVAL_RESOLVED":
@@ -330,9 +388,18 @@ function definitionsForEvent(
     case "DEMON_THEFT_RESOLVED":
       return [{ kind: "DEMON_EFFECT", durationMs: profile.stageGapMs }];
     case "GUARDIAN_ASSIGNED":
+      return [
+        {
+          kind: "GUARDIAN",
+          durationMs: profile.resolutionHoldMs + profile.stageGapMs
+        }
+      ];
+    case "GUARDIAN_CHECKED":
+      return event.acted
+        ? [{ kind: "GUARDIAN", durationMs: profile.stageGapMs }]
+        : [];
     case "GUARDIAN_DEPARTED":
     case "POST_TURN_AUTOMATIC_EFFECTS_STARTED":
-    case "GUARDIAN_CHECKED":
     case "GUARDIAN_ACTION_SELECTED":
       return [{ kind: "GUARDIAN", durationMs: profile.stageGapMs }];
     case "CALAMITY_APPLIED":
@@ -351,8 +418,18 @@ function definitionsForEvent(
         { kind: "AUTOMATIC_EFFECT", durationMs: profile.stageGapMs }
       ];
     case "TRADE_OFFERED":
-    case "TRADE_RESOLVED":
       return [{ kind: "TRADE", durationMs: profile.stageGapMs }];
+    case "TRADE_RESOLVED":
+      // 「買わない」「貧乏」 stay up long enough for every viewer to read.
+      return [
+        {
+          kind: "TRADE",
+          durationMs:
+            event.resolution === "ACCEPTED"
+              ? profile.stageGapMs
+              : profile.tradeOfferHoldMs
+        }
+      ];
     case "MATCH_ENDED":
       return [
         {
@@ -522,6 +599,20 @@ export function replacePresentationFromSnapshot(
   snapshot: GameViewState,
   nowMs: number
 ): PresentationQueueState {
+  // A match that already ended (e.g. CPUs settled it while everyone was away)
+  // is shown as its result at once, without replaying its events.
+  if (snapshot.phase === "MATCH_ENDED") {
+    const lastEventSeq = recentEvents.reduce(
+      (max, { eventSeq }) => Math.max(max, eventSeq),
+      0
+    );
+    return {
+      ...createPresentationQueue(state.profile),
+      latestSnapshot: snapshot,
+      lastQueuedEventSeq: lastEventSeq,
+      lastCompletedEventSeq: lastEventSeq
+    };
+  }
   return enqueuePresentationEvents(
     createPresentationQueue(state.profile),
     recentEvents,

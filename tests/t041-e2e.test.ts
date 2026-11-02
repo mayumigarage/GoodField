@@ -339,8 +339,24 @@ test("T-041 end-time demon can end the match at the current GF through the full 
     view,
     0
   );
-  const html = renderBattleScreen(view, ui, {}, queue);
   assert.equal(ui.mode, "MATCH_RESULT");
+  // The result stays hidden while the demon and ascension still play.
+  assert.doesNotMatch(
+    renderBattleScreen(view, ui, {}, queue, 0),
+    /data-result-kind=/u
+  );
+  let played = queue;
+  while (played.activeStep && played.activeStep.step.kind !== "RESULT") {
+    played = advancePresentationClock(played, played.activeStep.endsAtMs);
+  }
+  assert.equal(played.activeStep?.step.kind, "RESULT");
+  const html = renderBattleScreen(
+    view,
+    ui,
+    {},
+    played,
+    played.activeStep.startedAtMs
+  );
   assert.match(html, /G\.F\.1/u);
   assert.match(html, /data-result-kind="WIN"/u);
   assert.equal(

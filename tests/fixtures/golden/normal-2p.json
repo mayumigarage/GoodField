@@ -3601,6 +3601,8 @@
       "actorId": "player-1",
       "targetPlayerId": "player-2",
       "offeredCardInstanceId": "golden-normal-2p:card:21",
+      "offeredCardDefinitionId": "iron-armor",
+      "dreamRevealed": false,
       "price": 5,
       "canAfford": true,
       "inputDeadlineAt": null,
@@ -3608,8 +3610,7 @@
       "revision": 173,
       "occurredAt": "2026-07-26T00:00:00.000Z",
       "visibility": {
-        "scope": "PLAYER",
-        "playerId": "player-1"
+        "scope": "PUBLIC"
       }
     },
     {
@@ -5049,6 +5050,8 @@
       "actorId": "player-1",
       "targetPlayerId": "player-2",
       "offeredCardInstanceId": "golden-normal-2p:card:31",
+      "offeredCardDefinitionId": "iron-armor",
+      "dreamRevealed": false,
       "price": 5,
       "canAfford": true,
       "inputDeadlineAt": null,
@@ -5056,8 +5059,7 @@
       "revision": 274,
       "occurredAt": "2026-07-26T00:00:00.000Z",
       "visibility": {
-        "scope": "PLAYER",
-        "playerId": "player-1"
+        "scope": "PUBLIC"
       }
     },
     {
@@ -7201,6 +7203,8 @@
       "actorId": "player-1",
       "targetPlayerId": "player-2",
       "offeredCardInstanceId": "golden-normal-2p:card:87",
+      "offeredCardDefinitionId": "slate",
+      "dreamRevealed": false,
       "price": 2,
       "canAfford": true,
       "inputDeadlineAt": null,
@@ -7208,8 +7212,7 @@
       "revision": 427,
       "occurredAt": "2026-07-26T00:00:00.000Z",
       "visibility": {
-        "scope": "PLAYER",
-        "playerId": "player-1"
+        "scope": "PUBLIC"
       }
     },
     {
@@ -7459,6 +7462,8 @@
       "actorId": "player-2",
       "targetPlayerId": "player-1",
       "offeredCardInstanceId": "golden-normal-2p:card:314",
+      "offeredCardDefinitionId": "death-s-scythe",
+      "dreamRevealed": false,
       "price": 20,
       "canAfford": true,
       "inputDeadlineAt": null,
@@ -7466,8 +7471,7 @@
       "revision": 444,
       "occurredAt": "2026-07-26T00:00:00.000Z",
       "visibility": {
-        "scope": "PLAYER",
-        "playerId": "player-2"
+        "scope": "PUBLIC"
       }
     },
     {
@@ -10626,6 +10630,8 @@
             "actorId": "player-1",
             "targetPlayerId": "player-2",
             "offeredCardInstanceId": "golden-normal-2p:card:21",
+            "offeredCardDefinitionId": "iron-armor",
+            "dreamRevealed": false,
             "price": 5,
             "canAfford": true,
             "inputDeadlineAt": null,
@@ -10633,8 +10639,7 @@
             "revision": 173,
             "occurredAt": "2026-07-26T00:00:00.000Z",
             "visibility": {
-              "scope": "PLAYER",
-              "playerId": "player-1"
+              "scope": "PUBLIC"
             }
           }
         ]
@@ -12158,6 +12163,8 @@
             "actorId": "player-1",
             "targetPlayerId": "player-2",
             "offeredCardInstanceId": "golden-normal-2p:card:31",
+            "offeredCardDefinitionId": "iron-armor",
+            "dreamRevealed": false,
             "price": 5,
             "canAfford": true,
             "inputDeadlineAt": null,
@@ -12165,8 +12172,7 @@
             "revision": 274,
             "occurredAt": "2026-07-26T00:00:00.000Z",
             "visibility": {
-              "scope": "PLAYER",
-              "playerId": "player-1"
+              "scope": "PUBLIC"
             }
           }
         ]
@@ -14436,6 +14442,8 @@
             "actorId": "player-1",
             "targetPlayerId": "player-2",
             "offeredCardInstanceId": "golden-normal-2p:card:87",
+            "offeredCardDefinitionId": "slate",
+            "dreamRevealed": false,
             "price": 2,
             "canAfford": true,
             "inputDeadlineAt": null,
@@ -14443,8 +14451,7 @@
             "revision": 427,
             "occurredAt": "2026-07-26T00:00:00.000Z",
             "visibility": {
-              "scope": "PLAYER",
-              "playerId": "player-1"
+              "scope": "PUBLIC"
             }
           }
         ]
@@ -14715,6 +14722,8 @@
             "actorId": "player-2",
             "targetPlayerId": "player-1",
             "offeredCardInstanceId": "golden-normal-2p:card:314",
+            "offeredCardDefinitionId": "death-s-scythe",
+            "dreamRevealed": false,
             "price": 20,
             "canAfford": true,
             "inputDeadlineAt": null,
@@ -14722,8 +14731,7 @@
             "revision": 444,
             "occurredAt": "2026-07-26T00:00:00.000Z",
             "visibility": {
-              "scope": "PLAYER",
-              "playerId": "player-2"
+              "scope": "PUBLIC"
             }
           }
         ]

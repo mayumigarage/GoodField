@@ -1091,6 +1091,56 @@ test("a cost-cutting weapon makes an additive miracle free while still learning 
   assert.equal(result.events.some(({ type }) => type === "MP_SPENT"), false);
 });
 
+test("ogre armor attacks alone, stacks on a weapon, and still offers its defense", () => {
+  const setup = withHands(
+    createTwoPlayerMatch("ogre-armor").state,
+    [card("ogre", "ogre-s-armor"), card("club", "bronze-club")],
+    [card("target-ogre", "ogre-s-helm")]
+  );
+  const declare = (commandId: string, cardInstanceIds: string[]) =>
+    handleCommand(setup.state, {
+      type: "DECLARE_ACTION",
+      matchId: setup.state.matchId,
+      commandId,
+      actorId: setup.actorId,
+      expectedRevision: setup.state.revision,
+      cardInstanceIds,
+      targetPlayerId: setup.targetId
+    });
+
+  const alone = declare("ogre-alone", ["ogre"]);
+  assert.equal(alone.ok, true);
+  if (!alone.ok || alone.state.pendingAction?.kind !== "ATTACK") return;
+  assert.equal(alone.state.pendingAction.attack.power, 15);
+  assert.equal(alone.state.pendingAction.attack.element, "PHYSICAL");
+
+  const stacked = declare("ogre-stacked", ["club", "ogre"]);
+  assert.equal(stacked.ok, true);
+  if (!stacked.ok || stacked.state.pendingAction?.kind !== "ATTACK") return;
+  assert.equal(stacked.state.pendingAction.attack.power, 16);
+
+  const actions = projectGameView(setup.state, setup.actorId).self?.legalActions;
+  const ogreAction = actions?.find(
+    (action) =>
+      action.type === "DECLARE_ACTION" && action.cardInstanceIds[0] === "ogre"
+  );
+  assert.ok(ogreAction && ogreAction.type === "DECLARE_ACTION");
+  const clubAction = actions?.find(
+    (action) =>
+      action.type === "DECLARE_ACTION" && action.cardInstanceIds[0] === "club"
+  );
+  assert.ok(clubAction && clubAction.type === "DECLARE_ACTION");
+  assert.ok(clubAction.additiveCardInstanceIds.includes("ogre"));
+
+  const defended = projectGameView(
+    alone.state,
+    setup.targetId
+  ).self?.legalActions.find(({ type }) => type === "DECLARE_REACTION");
+  assert.ok(defended && defended.type === "DECLARE_REACTION");
+  assert.deepEqual(defended.defenseCardInstanceIds, ["target-ogre"]);
+  assert.equal(defended.defenseValueByCardInstanceId["target-ogre"], 7);
+});
+
 test("a direct healing miracle spends MP, becomes learned, and resolves on its user", () => {
   const setup = withHands(
     createTwoPlayerMatch("spring").state,
@@ -2749,7 +2799,7 @@ test("a sold sun amulet moves before HP-zero resolution and can revive its buyer
   assert.ok(transferIndex >= 0 && revivalIndex > transferIndex);
 });
 
-test("buy uses a private deterministic offer and transfers only after confirmation", () => {
+test("buy publishes a deterministic offer and transfers only after confirmation", () => {
   const setup = withHands(
     createTwoPlayerMatch("buy").state,
     [card("buy-card", "buy")],
@@ -2789,10 +2839,9 @@ test("buy uses a private deterministic offer and transfers only after confirmati
     ({ type }) => type === "TRADE_OFFERED"
   );
   assert.ok(offerEvent && offerEvent.type === "TRADE_OFFERED");
-  assert.deepEqual(offerEvent?.visibility, {
-    scope: "PLAYER",
-    playerId: setup.actorId
-  });
+  assert.deepEqual(offerEvent.visibility, { scope: "PUBLIC" });
+  assert.equal(offerEvent.offeredCardDefinitionId, "strength-powder");
+  assert.equal(offerEvent.dreamRevealed, false);
 
   const confirmed = handleCommand(forgiven.state, {
     type: "CONFIRM_BUY",
@@ -2855,6 +2904,12 @@ test("buy still requires confirmation when the offered artifact costs zero", () 
   });
   assert.equal(declined.ok, true);
   if (!declined.ok) return;
+  const resolution = declined.events.find(
+    ({ type }) => type === "TRADE_RESOLVED"
+  );
+  assert.ok(resolution?.type === "TRADE_RESOLVED");
+  assert.equal(resolution.resolution, "DECLINED");
+  assert.deepEqual(resolution.visibility, { scope: "PUBLIC" });
   assert.equal(
     declined.state.players[setup.targetId]?.hand.some(
       ({ instanceId }) => instanceId === "free-miracle"
@@ -2922,6 +2977,73 @@ test("direct-use goods apply their effects, consume the card, and replenish once
   assert.equal(herb.state.players[herbSetup.actorId]?.mp, 99);
   assert.equal(
     herb.state.players[herbSetup.actorId]?.calamities.HEAVEN_SICKNESS,
+    true
+  );
+});
+
+test("a stronger disease overwrites the current one and an equal or weaker one worsens it a single step", () => {
+  const useHerbWith = (
+    seed: string,
+    calamities: MatchState["players"][string]["calamities"]
+  ) => {
+    const setup = withHands(
+      createTwoPlayerMatch(seed).state,
+      [card("herb", "heaven-herb")],
+      []
+    );
+    const state: MatchState = {
+      ...setup.state,
+      players: {
+        ...setup.state.players,
+        [setup.actorId]: {
+          ...setup.state.players[setup.actorId]!,
+          mp: 90,
+          calamities
+        }
+      }
+    };
+    const result = handleCommand(state, {
+      type: "DECLARE_ACTION",
+      matchId: state.matchId,
+      commandId: `use-herb-${seed}`,
+      actorId: setup.actorId,
+      expectedRevision: state.revision,
+      cardInstanceIds: ["herb"],
+      targetPlayerId: setup.actorId
+    });
+    assert.equal(result.ok, true);
+    return { result, actorId: setup.actorId };
+  };
+
+  for (const current of ["COLD", "FEVER", "HELL_SICKNESS"] as const) {
+    const { result, actorId } = useHerbWith(`overwrite-${current}`, {
+      [current]: true
+    });
+    if (!result.ok) continue;
+    assert.deepEqual(result.state.players[actorId]?.calamities, {
+      HEAVEN_SICKNESS: true
+    });
+    assert.equal(
+      result.events.some(({ type }) => type === "CALAMITY_APPLIED"),
+      true
+    );
+    assert.equal(
+      result.events.some(({ type }) => type === "CALAMITY_WORSENED"),
+      false
+    );
+  }
+
+  const { result: fatal } = useHerbWith("worsen-heaven", {
+    HEAVEN_SICKNESS: true
+  });
+  if (!fatal.ok) return;
+  assert.equal(
+    fatal.events.some(
+      (event) =>
+        event.type === "CALAMITY_WORSENED" &&
+        event.from === "HEAVEN_SICKNESS" &&
+        event.to === null
+    ),
     true
   );
 });

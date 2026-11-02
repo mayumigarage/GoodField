@@ -1121,10 +1121,26 @@ a:focus-visible {
   font-size: 30px;
 }
 
+.hidden-brawl-main-actions [data-start]:not(:disabled) {
+  border-color: #e0b95c;
+  background: #ffeab8;
+  box-shadow: 0 3px 0 rgb(150 110 30 / 45%), 0 0 14px rgb(255 235 160 / 80%);
+}
+
+.hidden-brawl-main-actions [data-start]:not(:disabled):hover {
+  background: #fff3d2;
+}
+
 .hidden-brawl-main-actions button:disabled {
   cursor: wait;
   filter: saturate(0.6);
   opacity: 0.62;
+}
+
+.hidden-brawl-main-actions [data-start]:disabled {
+  border-color: #77694b;
+  background: #a69b78;
+  box-shadow: none;
 }
 
 .hidden-brawl-waiting {
