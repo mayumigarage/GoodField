@@ -9,6 +9,8 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "24"
+      - key: NODE_ENV
+        value: development
       - key: GOODFIELD_HOST
         value: 0.0.0.0
       - key: GOODFIELD_PORT
