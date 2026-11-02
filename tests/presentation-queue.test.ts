@@ -89,6 +89,23 @@ test("attack cards reveal one per stage like discards", () => {
   );
 });
 
+test("the dangerous pestle stays on screen for 2,000ms before the attack proceeds", () => {
+  const steps = presentationStepsForEvent(
+    event({
+      type: "ACTION_DECLARED",
+      eventSeq: 1,
+      playerId: "a",
+      actionType: "DECLARE_ACTION",
+      targetPlayerId: "b",
+      actionCardDefinitionIds: ["dangerous-pestle"]
+    })
+  );
+  assert.deepEqual(
+    steps.map(({ kind, durationMs }) => [kind, durationMs]),
+    [["ACTION", 2_000]]
+  );
+});
+
 test("discard presentations reveal the discard card and then one card per stage", () => {
   const steps = presentationStepsForEvent(
     event({

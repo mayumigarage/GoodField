@@ -343,6 +343,7 @@ export function legalActionsFor(
     if (
       (definition.category === "WEAPON" ||
         definition.category === "MIRACLE" ||
+        definition.category === "GOODS" ||
         definition.category === "ARMOR") &&
       attack &&
       attackStandsAlone(definition) &&
@@ -434,7 +435,6 @@ export function legalActionsFor(
     if (
       definition?.category === "MIRACLE" &&
       attack &&
-      !attack.additive &&
       ((definition.mpCost ?? 0) <= player.mp ||
         costCutterCardInstanceIds.length > 0)
     ) {

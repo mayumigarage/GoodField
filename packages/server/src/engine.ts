@@ -1419,14 +1419,17 @@ function finishTurn(context: EngineContext, actorId: string): void {
 function resolveHpZero(
   context: EngineContext,
   playerId: string,
-  sourcePlayerId: string | null = null
+  sourcePlayerId: string | null = null,
+  ignoreRevival = false
 ): void {
   const player = context.state.players[playerId];
   if (!player || player.hp > 0) return;
   emit(context, { type: "HP_REACHED_ZERO", playerId });
-  const amulet = player.hand.find(
-    ({ cardDefinitionId }) => cardDefinitionId === "sun-amulet"
-  );
+  const amulet = ignoreRevival
+    ? undefined
+    : player.hand.find(
+        ({ cardDefinitionId }) => cardDefinitionId === "sun-amulet"
+      );
   if (amulet) {
     emit(context, {
       type: "CARD_CONSUMED",
@@ -2154,7 +2157,12 @@ function startAttackSeriesStep(
         hitRate: plan.hitRate
       });
       if (hit) {
-        if (targetPlayerId === plan.actionOwnerId) {
+        const targetState = context.state.players[targetPlayerId];
+        if (
+          targetPlayerId === plan.actionOwnerId ||
+          (targetState &&
+            isDangerousPestleDoom(plan.sourceCardDefinitionIds, targetState))
+        ) {
           const selfPending = context.state.pendingAction;
           if (selfPending?.kind !== "ATTACK") {
             throw new Error("Self attack state disappeared");
@@ -2206,6 +2214,20 @@ function seriesPlanFromPending(
   };
 }
 
+// The dangerous pestle is a lethal blow to anyone holding the dangerous
+// mortar: 99 damage that cannot be defended and ignores the sun amulet.
+function isDangerousPestleDoom(
+  sourceCardDefinitionIds: readonly string[],
+  defender: PlayerState
+): boolean {
+  return (
+    sourceCardDefinitionIds.includes("dangerous-pestle") &&
+    defender.hand.some(
+      ({ cardDefinitionId }) => cardDefinitionId === "dangerous-mortar"
+    )
+  );
+}
+
 function resolvePendingAttackDamage(
   context: EngineContext,
   pending: Extract<NonNullable<MatchState["pendingAction"]>, { kind: "ATTACK" }>,
@@ -2214,14 +2236,10 @@ function resolvePendingAttackDamage(
 ): number {
   const defender = context.state.players[targetPlayerId];
   if (!defender?.alive) return 0;
-  const dangerousMortarTriggered =
-    pending.attack.sourceCardDefinitionIds.includes(
-      "dangerous-pestle"
-    ) &&
-    defender.hand.some(
-      ({ cardDefinitionId }) =>
-        cardDefinitionId === "dangerous-mortar"
-    );
+  const dangerousMortarTriggered = isDangerousPestleDoom(
+    pending.attack.sourceCardDefinitionIds,
+    defender
+  );
   const effectivePower = dangerousMortarTriggered
     ? 99
     : pending.attack.power;
@@ -2240,7 +2258,8 @@ function resolvePendingAttackDamage(
   resolveHpZero(
     context,
     targetPlayerId,
-    pending.attack.actorId
+    pending.attack.actorId,
+    dangerousMortarTriggered
   );
   maybeDepartGuardianAfterHpLoss(
     context,
@@ -2411,10 +2430,16 @@ function startCounterReaction(
   context: EngineContext,
   pending: Extract<NonNullable<MatchState["pendingAction"]>, { kind: "ATTACK" }>,
   defenderId: string,
-  definitions: readonly CardDefinition[],
+  reactionDefinitions: readonly CardDefinition[],
   receivedDamage: number
 ): boolean {
   if (receivedDamage <= 0) return false;
+  // Counter rings follow the same element matchup as armor.
+  const definitions = reactionDefinitions.filter(
+    (definition) =>
+      definition.category !== "ARMOR" ||
+      canDefenseBlock(definition.element, pending.attack.element)
+  );
   for (const definition of definitions) {
     for (const instruction of instructionsOfKind(
       definition,
@@ -3246,7 +3271,7 @@ function automaticActionCandidates(
       learnedMiracleId: miracle.learnedMiracleId
     };
     const attack = instructionsOfKind(definition, "ATTACK")[0];
-    if (attack && !attack.additive) {
+    if (attack) {
       candidates.push({
         key: `ATTACK:MIRACLE:${miracle.learnedMiracleId}`,
         type: "ATTACK",
@@ -3321,7 +3346,7 @@ function commitAutomaticSource(
       mpAfter: player.mp - mpCost
     });
   }
-  return source.cardInstance ? 1 : 0;
+  return source.cardInstance || source.learnedMiracleId ? 1 : 0;
 }
 
 function completeConfusionAction(
@@ -4183,9 +4208,7 @@ function handleDirectAction(
         ({ definition: sourceDefinition }) =>
           sourceDefinition.cardDefinitionId
       ),
-      attackerGrantCount: sources.filter(
-        ({ cardInstance }) => cardInstance !== null
-      ).length,
+      attackerGrantCount: sources.length,
       deferredTargetedCardEffect: {
         kind: "DIRECT",
         definitionId: definition.cardDefinitionId
@@ -4204,8 +4227,7 @@ function handleDirectAction(
     const completion = resolvePhenomenon(
       context,
       actor.playerId,
-      sources.filter(({ cardInstance }) => cardInstance !== null)
-        .length
+      sources.length
     );
     if (completion === "OWNS_ACTION_COMPLETION") return null;
   }
@@ -4310,8 +4332,11 @@ function handleDeclareAction(
       "Only attack sources and supported goods can compose an attack"
     );
   }
+  const throwsDangerousPestle = sources.some(
+    ({ definition }) => definition.cardDefinitionId === "dangerous-pestle"
+  );
   const target = context.state.players[command.targetPlayerId];
-  if (!target || !isEnemy(actor, target)) {
+  if (!throwsDangerousPestle && (!target || !isEnemy(actor, target))) {
     return fail(context.state, "INVALID_TARGET", "Target must be a living enemy");
   }
   const attacks = sources.map(({ definition }) =>
@@ -4402,10 +4427,11 @@ function handleDeclareAction(
     combineElements(
       sources.map(({ definition }) => definition.element)
     );
-  const hitRate =
-    sources
-      .flatMap(({ definition }) => instructionsOfKind(definition, "HIT_RATE"))
-      .at(0)?.percent ?? 100;
+  const hitRate = throwsDangerousPestle
+    ? 100
+    : (sources
+        .flatMap(({ definition }) => instructionsOfKind(definition, "HIT_RATE"))
+        .at(0)?.percent ?? 100);
   const totalAttacks = sources.some(({ definition }) =>
     hasSpecialEffect(definition, "ATTACK_TWICE")
   )
@@ -4421,7 +4447,24 @@ function handleDeclareAction(
         hasSpecialEffect(definition, "ATTACK_EVERY_ENEMY")
     );
   let targetPlayerIds: string[];
-  if (attacksEveryEnemy) {
+  if (throwsDangerousPestle) {
+    // The pestle falls on one random living player (the user included);
+    // a dangerous mortar holder is always the one it falls on.
+    const livingPlayers = alivePlayersInSeatOrder(context.state);
+    const mortarHolders = livingPlayers.filter((candidate) =>
+      candidate.hand.some(
+        ({ cardDefinitionId }) => cardDefinitionId === "dangerous-mortar"
+      )
+    );
+    const pestleCandidates =
+      mortarHolders.length > 0 ? mortarHolders : livingPlayers;
+    const pestleTargetId = selectRandomPlayerId(
+      context,
+      pestleCandidates,
+      "TARGET_SELECTION"
+    );
+    targetPlayerIds = pestleTargetId ? [pestleTargetId] : [];
+  } else if (attacksEveryEnemy) {
     const shuffledTargets = shuffleDeterministically(
       context.state.rng,
       enemyCandidates.map((candidate) => ({
@@ -4511,7 +4554,7 @@ function handleDeclareAction(
     attackKind:
       primaryDefinition.category === "MIRACLE" ? "MIRACLE" : "WEAPON",
     totalAttacks,
-    attackerGrantCount: selectedCards.length,
+    attackerGrantCount: sources.length,
     completion: "FINISH_TURN"
   };
   if (!startAttackSeriesStep(context, plan, 0, 1)) {
@@ -4683,11 +4726,11 @@ function handleReaction(
       )
     )
   ].filter((effect): effect is ReactionEffect => effect !== null);
-  if (specialEffects.length > 1) {
+  if (new Set(specialEffects).size > 1) {
     return fail(
       context.state,
       "INVALID_CARD_SELECTION",
-      "Select at most one stop, reflection, or bounce effect"
+      "Select only one kind of stop, reflection, or bounce effect"
     );
   }
   const ignoresMiracleCost = reactionDefinitions.some((definition) =>

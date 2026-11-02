@@ -760,6 +760,8 @@ function actionActivityLabel(actionType: GameCommand["type"]): string {
   switch (actionType) {
     case "DECLARE_ACTION":
       return "神器・奇跡を使用";
+    case "PRAY":
+      return "祈った";
     case "DISCARD":
       return "神器を捨てた";
     case "SACRIFICE":
@@ -793,7 +795,8 @@ function latestRecentCardUseScene(
         { type: "ACTION_DECLARED" | "REACTION_DECLARED" }
       > =>
         (event.type === "ACTION_DECLARED" &&
-          (event.actionCardDefinitionIds?.length ?? 0) > 0) ||
+          (event.actionType === "PRAY" ||
+            (event.actionCardDefinitionIds?.length ?? 0) > 0)) ||
         (event.type === "REACTION_DECLARED" &&
           ((event.defenseCardDefinitionIds?.length ?? 0) > 0 ||
             (event.defenseLearnedMiracleDefinitionIds?.length ?? 0) > 0))
@@ -1775,7 +1778,12 @@ function renderActionRegion(
       </div>
       ${
         showRoute
-          ? `<div class="gf-action__route" aria-hidden="true">
+          ? `<div
+              class="gf-action__route"
+              ${presentedAttack?.redirectMove ? 'data-route-staged="true"' : ""}
+              style="${redirectMoveStyle}"
+              aria-hidden="true"
+            >
               <span class="gf-action__actor">${
                 guardianAction
                   ? escapeHtml(actor?.guardian?.guardianName ?? "守護神")
@@ -5489,6 +5497,34 @@ export const BATTLE_SCREEN_STYLES = `
 
 .gf-action__content[data-attack-side="right"] > .gf-action__stack--defense {
   grid-column: 1;
+}
+
+/* A redirected attack names its new route one piece at a time:
+   actor, arrow, target (the damage follows in the next stage). */
+.gf-action__route[data-route-staged] .gf-action__arrow {
+  animation: gf-route-arrow-reveal var(--gf-redirect-ms, 1000ms) linear var(--gf-effect-delay, 0ms) both;
+}
+
+.gf-action__route[data-route-staged] .gf-action__target {
+  animation: gf-route-target-reveal var(--gf-redirect-ms, 1000ms) linear var(--gf-effect-delay, 0ms) both;
+}
+
+@keyframes gf-route-arrow-reveal {
+  0%, 32.9% {
+    visibility: hidden;
+  }
+  33%, 100% {
+    visibility: visible;
+  }
+}
+
+@keyframes gf-route-target-reveal {
+  0%, 65.9% {
+    visibility: hidden;
+  }
+  66%, 100% {
+    visibility: visible;
+  }
 }
 
 .gf-action__stack[data-redirect-move] {

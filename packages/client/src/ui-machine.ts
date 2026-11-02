@@ -1009,26 +1009,6 @@ export function learnedMiracleStatus(
   };
 }
 
-const SPECIAL_REACTION_OPERATIONS = new Set([
-  "BOUNCE_WEAPON",
-  "REFLECT_WEAPON",
-  "BLOCK_WEAPON",
-  "BOUNCE_MIRACLE",
-  "REFLECT_MIRACLE",
-  "BLOCK_MIRACLE",
-  "REFLECT_ANYTHING"
-]);
-
-function isSpecialReaction(cardDefinitionId: string): boolean {
-  return (
-    CARD_DEFINITIONS_BY_ID.get(cardDefinitionId)?.instructions.some(
-      (instruction) =>
-        instruction.kind === "SPECIAL" &&
-        SPECIAL_REACTION_OPERATIONS.has(instruction.operation)
-    ) ?? false
-  );
-}
-
 function selectedReactionSources(
   current: UiInteractionState,
   view: GameViewState
@@ -1042,15 +1022,6 @@ function selectedReactionSources(
       current.selectedDefenseLearnedMiracleIds.includes(learnedMiracleId)
     ) ?? [];
   return [...cards, ...miracles];
-}
-
-function hasSelectedSpecialReaction(
-  current: UiInteractionState,
-  view: GameViewState
-): boolean {
-  return selectedReactionSources(current, view).some(({ cardDefinitionId }) =>
-    isSpecialReaction(cardDefinitionId)
-  );
 }
 
 function isElementFilter(cardDefinitionId: string): boolean {
@@ -1204,20 +1175,6 @@ export function selectDefenseCard(
       selectionInvalidReason: `防具は最大${reaction.maxDefenseCards}枚までです`
     };
   }
-  const card = view.self?.hand.find(
-    ({ instanceId }) => instanceId === cardInstanceId
-  );
-  if (
-    card &&
-    isSpecialReaction(card.cardDefinitionId) &&
-    hasSelectedSpecialReaction(current, view)
-  ) {
-    return {
-      ...current,
-      selectionInvalidReason:
-        "停止・反射・弾きの効果は1つだけ選択できます"
-    };
-  }
   return {
     ...current,
     selectedDefenseCardIds: [
@@ -1257,20 +1214,6 @@ export function selectDefenseMiracle(
       },
       view
     );
-  }
-  const miracle = view.self?.learnedMiracles.find(
-    ({ learnedMiracleId: id }) => id === learnedMiracleId
-  );
-  if (
-    miracle &&
-    isSpecialReaction(miracle.cardDefinitionId) &&
-    hasSelectedSpecialReaction(current, view)
-  ) {
-    return {
-      ...current,
-      selectionInvalidReason:
-        "停止・反射・弾きの効果は1つだけ選択できます"
-    };
   }
   return {
     ...current,
