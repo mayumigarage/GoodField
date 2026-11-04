@@ -28,7 +28,16 @@ import type {
   TradePresentationStage
 } from "./presentation-queue.ts";
 import { renderSoundControl } from "./sound-control.ts";
-import { immediateSoundEvents, SoundEffectPlayer } from "./sound-effects.ts";
+import {
+  immediateSoundEvents,
+  isDangerousMortarDamage,
+  isDarkDamage,
+  isDefensePenalty,
+  SoundEffectPlayer,
+  soundEffectForEvent,
+  soundEffectForPresentationStep,
+  type SoundEffect
+} from "./sound-effects.ts";
 import {
   actionCardStatus,
   canSubmitTrade,
@@ -629,6 +638,33 @@ function selectedActionDefinitionIds(
   return selectedIds.length > 0 ? selectedIds : [...pendingAttackIds];
 }
 
+function redrawsHand(cardDefinitionId: string): boolean {
+  return (
+    CARD_DEFINITIONS_BY_ID.get(cardDefinitionId)?.instructions.some(
+      (instruction) =>
+        instruction.kind === "SPECIAL" &&
+        instruction.operation === "REDRAW_HAND"
+    ) ?? false
+  );
+}
+
+// 昇天弓 always shoots 30 at 75%, whatever else boosted the original attack.
+const ASCENSION_BOW_POWER = 30;
+
+function inflictsOwnCalamity(
+  cardDefinitionId: string,
+  calamity: Calamity
+): boolean {
+  return (
+    CARD_DEFINITIONS_BY_ID.get(cardDefinitionId)?.instructions.some(
+      (instruction) =>
+        instruction.kind === "ADD_CALAMITY" &&
+        instruction.timing === "SELF" &&
+        instruction.calamity === calamity
+    ) ?? false
+  );
+}
+
 function renderFieldCard(
   cardDefinitionId: string,
   modifier = ""
@@ -680,6 +716,7 @@ type AttackCalamityEvent = Extract<
   DomainEvent,
   { type: "CALAMITY_APPLIED" | "CALAMITY_WORSENED" }
 >;
+type HandRedrawnEvent = Extract<DomainEvent, { type: "HAND_REDRAWN" }>;
 type GuardianActionEvent = Extract<
   DomainEvent,
   { type: "GUARDIAN_ACTION_SELECTED" }
@@ -693,13 +730,32 @@ type AttackPresentationScene = {
   hitRoll: HitRolledEvent | null;
   damage: DamageAppliedEvent | null;
   calamity: AttackCalamityEvent | null;
+  // 「神器一新」 shown over the defense after the attack's outcome.
+  handRedraw: HandRedrawnEvent | null;
+  // True while the redrawing defense card flashes before 「神器一新」.
+  handRedrawLead: boolean;
   // Set while the defender's card is held under the "deflected" notice.
   deflectNotice: Extract<DomainEvent, { type: "ATTACK_REDIRECTED" }> | null;
+  // True while the "stopped" notice (wall block) is shown.
+  stopped: boolean;
   // True while the attack card slides over to the redirected actor's side.
   redirectMove: boolean;
   reactionDepth: number;
   stageKind: PresentationStageKind;
   stageIndex: number;
+  // The damage is from a dark attack, which takes all remaining HP.
+  darkDamage: boolean;
+  // 「あぶないキネ」 struck a holder of 「あぶないウス」.
+  dangerousMortar: boolean;
+  // The calamity on screen comes from the defender's own defense card.
+  defensePenalty: boolean;
+};
+
+// 「昇天弓」: an ascending player's last shot at whoever brought them down.
+type AscensionBowScene = {
+  event: Extract<DomainEvent, { type: "ASCENSION_BOW_TRIGGERED" }>;
+  showsHitResult: boolean;
+  damage: ResourceChangedEvent | null;
 };
 
 type RecentCardUseScene = {
@@ -870,7 +926,7 @@ function latestRecentCardUseScene(
       redirect?.type === "ATTACK_REDIRECTED"
         ? redirect.redirectType === "REFLECT"
           ? "跳ね返した"
-          : "受け流した"
+          : "弾いた"
         : "防御した",
     actionCardDefinitionIds: [
       ...(attackEvent?.attack.sourceCardDefinitionIds ?? [])
@@ -909,7 +965,8 @@ function presentationAttackScene(
   );
   const latestCalamityDamage =
     activeEvent.type === "CALAMITY_APPLIED" ||
-    activeEvent.type === "CALAMITY_WORSENED"
+    activeEvent.type === "CALAMITY_WORSENED" ||
+    activeEvent.type === "HAND_REDRAWN"
       ? [...events]
           .reverse()
           .find(
@@ -947,6 +1004,7 @@ function presentationAttackScene(
                   boundary.eventSeq < active.eventSeq &&
                   (boundary.type === "ACTION_DECLARED" ||
                     boundary.type === "ATTACK_CREATED" ||
+                    boundary.type === "ASCENSION_BOW_TRIGGERED" ||
                     boundary.type === "POST_TURN_AUTOMATIC_EFFECTS_STARTED" ||
                     boundary.type === "GUARDIAN_ACTION_SELECTED" ||
                     boundary.type === "PHENOMENON_SELECTED")
@@ -959,6 +1017,7 @@ function presentationAttackScene(
       : activeEvent.type === "ATTACK_REDIRECTED" ||
           activeEvent.type === "HIT_ROLLED" ||
           activeEvent.type === "REACTION_REQUESTED" ||
+          activeEvent.type === "ATTACK_STOPPED" ||
           activeEvent.type === "DAMAGE_APPLIED"
         ? activeEvent.attackId
         : relatedCalamityDamage?.attackId ??
@@ -1064,7 +1123,14 @@ function presentationAttackScene(
       activeEvent.type === "CALAMITY_WORSENED"
         ? activeEvent
         : null,
+    handRedraw:
+      activeEvent.type === "HAND_REDRAWN" && active.stageIndex === 1
+        ? activeEvent
+        : null,
+    handRedrawLead:
+      activeEvent.type === "HAND_REDRAWN" && active.stageIndex === 0,
     deflectNotice,
+    stopped: activeEvent.type === "ATTACK_STOPPED",
     redirectMove:
       activeEvent.type === "ATTACK_REDIRECTED" && active.stageIndex === 1,
     reactionDepth:
@@ -1072,8 +1138,44 @@ function presentationAttackScene(
         ? redirect.reactionDepth
         : attackEvent.attack.reactionDepth,
     stageKind: active.kind,
-    stageIndex: active.stageIndex
+    stageIndex: active.stageIndex,
+    darkDamage: damage !== null && isDarkDamage(damage, events),
+    dangerousMortar: damage !== null && isDangerousMortarDamage(damage, events),
+    defensePenalty:
+      (activeEvent.type === "CALAMITY_APPLIED" ||
+        activeEvent.type === "HAND_REDRAWN") &&
+      isDefensePenalty(activeEvent, events)
   };
+}
+
+function presentationAscensionBow(
+  presentation: PresentationQueueState | null
+): AscensionBowScene | null {
+  const active = presentation?.activeStep?.step;
+  if (!active) return null;
+  if (active.event.type === "ASCENSION_BOW_TRIGGERED") {
+    return {
+      event: active.event,
+      showsHitResult: active.stageIndex > 0,
+      damage: null
+    };
+  }
+  // The arrow's damage stays on the bow's scene.
+  const damage = active.event;
+  if (
+    active.kind !== "HP_UPDATE" ||
+    damage.type !== "RESOURCE_CHANGED" ||
+    damage.reason !== "COUNTER"
+  ) {
+    return null;
+  }
+  const previous = presentation.recentEvents.findLast(
+    ({ eventSeq }) => eventSeq < damage.eventSeq
+  );
+  return previous?.type === "ASCENSION_BOW_TRIGGERED" &&
+    previous.targetPlayerId === damage.playerId
+    ? { event: previous, showsHitResult: false, damage }
+    : null;
 }
 
 function hasPendingAttackOutcome(
@@ -1561,6 +1663,9 @@ function renderActionRegion(
       ? pendingAttack
       : null;
   const guardianAction = presentationGuardianAction(presentation);
+  const ascensionBow = presentationAscensionBow(presentation);
+  const confusionStarted =
+    activeEvent?.type === "CONFUSION_ACTIONS_STARTED";
   const activeResourceEffect = presentationResourceEffect(presentation);
   const exchangeScene = presentationExchange(presentation);
   const exchangeDraft = activeExchangeDraft(view, ui);
@@ -1580,6 +1685,7 @@ function renderActionRegion(
   const recentCardUseCandidate =
     !presentedAttack &&
     !guardianAction &&
+    !ascensionBow &&
     resourceEffectUsesRecentCard &&
     (!pendingAttack || activePresentationKind === "ACTION") &&
     ui.selectedActionCardIds.length === 0 &&
@@ -1594,6 +1700,7 @@ function renderActionRegion(
     (locksPresentedAttack ? presentedAttack.actorId : null) ??
     authoritativePendingAttack?.actorId ??
     presentedAttack?.actorId ??
+    ascensionBow?.event.playerId ??
     guardianAction?.playerId ??
     recentCardUse?.actorId ??
     pendingAttack?.actorId ??
@@ -1604,6 +1711,7 @@ function renderActionRegion(
     (locksPresentedAttack ? presentedAttack.targetPlayerId : null) ??
     authoritativePendingAttack?.targetPlayerId ??
     presentedAttack?.targetPlayerId ??
+    ascensionBow?.event.targetPlayerId ??
     guardianAction?.targetPlayerId ??
     activeResourceEffect?.playerId ??
     (recentCardUse
@@ -1620,6 +1728,8 @@ function renderActionRegion(
       ? [...authoritativePendingAttack.sourceCardDefinitionIds]
       : presentedAttack
         ? [...presentedAttack.attackEvent.attack.sourceCardDefinitionIds]
+        : ascensionBow
+          ? ["ascension-bow"]
         : guardianAction
           ? [guardianAction.actionCardDefinitionId]
           : recentCardUse
@@ -1687,8 +1797,16 @@ function renderActionRegion(
           presentation,
           "REACTION_DECLARED"
         );
+  // The mortar holder's 「あぶないウス」 is drawn beside the pestle that found it.
+  const showsDangerousMortar =
+    presentedAttack !== null &&
+    presentedAttack.dangerousMortar &&
+    ["DAMAGE_RESULT", "HP_UPDATE", "CALAMITY"].includes(
+      presentedAttack.stageKind
+    );
   const showForgive =
     presentedAttack !== null &&
+    !showsDangerousMortar &&
     ["REACTION", "DAMAGE_RESULT", "HP_UPDATE", "CALAMITY"].includes(
       presentedAttack.stageKind
     ) &&
@@ -1700,6 +1818,7 @@ function renderActionRegion(
       : null) ??
     authoritativePendingAttack?.power ??
     presentedAttack?.attackEvent.attack.power ??
+    (ascensionBow ? ASCENSION_BOW_POWER : null) ??
     recentCardUse?.attack?.power ??
     pendingAttack?.power ??
     preview.attackPower;
@@ -1754,7 +1873,7 @@ function renderActionRegion(
       data-attack-id="${escapeHtml(displayedAttack?.attackId ?? "")}"
       data-attack-target-index="${displayedAttack ? displayedAttack.targetIndex + 1 : ""}"
       data-attack-target-count="${displayedAttack?.totalTargets ?? ""}"
-      data-presentation-scene="${presentedAttack ? "attack" : guardianAction ? "guardian" : recentCardUse ? "recent-card-use" : "none"}"
+      data-presentation-scene="${presentedAttack ? "attack" : ascensionBow ? "ascension-bow" : guardianAction ? "guardian" : recentCardUse ? "recent-card-use" : "none"}"
       data-presentation-stage="${activePresentationKind ?? "NONE"}"
       data-has-defense="${String(selectedDefenseDefinitionIds.length > 0 || defensePower !== null)}"
       data-has-route="${String(showRoute && Boolean(actor && (target || showsExchange)))}"
@@ -1874,9 +1993,29 @@ function renderActionRegion(
         >
           ${selectedDefenseDefinitionIds
             .map((cardDefinitionId) =>
-              renderFieldCard(cardDefinitionId, "gf-field-card--defense")
+              renderFieldCard(
+                cardDefinitionId,
+                (presentedAttack?.handRedrawLead &&
+                  redrawsHand(cardDefinitionId)) ||
+                  (presentedAttack?.defensePenalty &&
+                    presentedAttack.calamity?.type === "CALAMITY_APPLIED" &&
+                    inflictsOwnCalamity(
+                      cardDefinitionId,
+                      presentedAttack.calamity.calamity
+                    ))
+                  ? "gf-field-card--defense gf-field-card--effect-source"
+                  : "gf-field-card--defense"
+              )
             )
             .join("")}
+          ${
+            showsDangerousMortar
+              ? renderFieldCard(
+                  "dangerous-mortar",
+                  "gf-field-card--defense gf-field-card--mortar"
+                )
+              : ""
+          }
           ${
             showForgive
               ? `<strong class="gf-action__forgive${
@@ -1908,9 +2047,20 @@ function renderActionRegion(
                 role="status"
               ><strong>${
                 presentedAttack.deflectNotice.redirectType === "REFLECT"
-                  ? "弾いた"
-                  : "跳ね返した"
+                  ? "跳ね返した"
+                  : "弾いた"
               }</strong></div>`
+            : ""
+        }
+        ${
+          presentedAttack?.stopped
+            ? `<div
+                class="gf-action__result"
+                data-result="stopped"
+                data-polarity="neutral"
+                style="${effectDelayStyle}"
+                role="status"
+              ><strong>止めた</strong></div>`
             : ""
         }
         ${
@@ -1925,12 +2075,23 @@ function renderActionRegion(
             : ""
         }
         ${
+          ascensionBow?.showsHitResult
+            ? `<div
+                class="gf-action__result"
+                data-result="${ascensionBow.event.hit ? "hit" : "miss"}"
+                style="${effectDelayStyle}"
+                role="status"
+              ><strong>${ascensionBow.event.hit ? "命中" : "外れた"}</strong></div>`
+            : ""
+        }
+        ${
           presentedAttack?.stageKind === "DAMAGE_RESULT" &&
           presentedAttack.damage &&
           !presentedAttack.calamity
             ? `<div
                 class="gf-action__result"
                 data-result="${presentedAttack.damage.amount === 0 ? "safe" : "damage"}"
+                ${presentedAttack.darkDamage ? 'data-element="DARK"' : ""}
                 data-polarity="${presentedAttack.damage.amount === 0 ? "neutral" : "negative"}"
                 style="${effectDelayStyle}"
                 role="status"
@@ -1956,10 +2117,36 @@ function renderActionRegion(
             : ""
         }
         ${
+          confusionStarted
+            ? `<div
+                class="gf-action__effect"
+                data-effect="confusion"
+                style="${effectDelayStyle}"
+                role="status"
+              ><strong>御乱心</strong></div>`
+            : ""
+        }
+        ${
+          presentedAttack?.handRedraw
+            ? `<div
+                class="gf-action__effect"
+                data-effect="hand-redraw"
+                data-player-id="${escapeHtml(presentedAttack.handRedraw.playerId)}"
+                style="${effectDelayStyle}"
+                role="status"
+              ><strong>神器一新</strong></div>`
+            : ""
+        }
+        ${
           presentedAttack?.calamity
             ? `<div
                 class="gf-action__effect"
                 data-effect="calamity"
+                data-calamity="${
+                  presentedAttack.calamity.type === "CALAMITY_APPLIED"
+                    ? presentedAttack.calamity.calamity
+                    : presentedAttack.calamity.to ?? presentedAttack.calamity.from
+                }"
                 style="${effectDelayStyle}"
                 role="status"
               ><strong>${escapeHtml(
@@ -2657,6 +2844,12 @@ function presentationCopy(
         title: event.to ? CALAMITY_LABELS[event.to] : "HP0",
         detail: eventPlayerName(view, event.playerId)
       };
+    case "HAND_REDRAWN":
+      return {
+        eyebrow: "Renewal",
+        title: "神器一新",
+        detail: eventPlayerName(view, event.playerId)
+      };
     case "CALAMITIES_REMOVED":
       return {
         eyebrow: "Calamity",
@@ -2958,6 +3151,7 @@ export function renderBattleScreen(
       class="gf-header__link"
       href="${safeHref(links.rulebookHref, "/rulebook")}"
       aria-label="教典を開く"
+      data-rulebook-link
     >▣&nbsp; 教典</a>
   </header>
 
@@ -3444,6 +3638,42 @@ export function mountBattleScreen(
   };
   container.addEventListener("click", playInteractionSound);
 
+  // Each control sounds once as the pointer reaches it. Renders replace the
+  // DOM under a resting pointer, so controls are told apart by their markup
+  // rather than by element identity.
+  let hoveredControlKey: string | null = null;
+  const playHoverSound = (event: MouseEvent): void => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const control = target.closest<HTMLElement>(
+      "button, [data-rulebook-link]"
+    );
+    const key = control
+      ? `${control.getAttributeNames()
+          .map((name) => `${name}=${control.getAttribute(name) ?? ""}`)
+          .join("&")}|${control.textContent ?? ""}`
+      : null;
+    if (key === hoveredControlKey) return;
+    hoveredControlKey = key;
+    if (!control || (control instanceof HTMLButtonElement && control.disabled)) {
+      return;
+    }
+    sounds.play(
+      control.matches("[data-rulebook-link]") ? "bookTabOver" : "buttonOver"
+    );
+  };
+  container.addEventListener("mouseover", playHoverSound);
+
+  const playRulebookSound = (event: MouseEvent): void => {
+    if (
+      event.target instanceof Element &&
+      event.target.closest("[data-rulebook-link]")
+    ) {
+      sounds.play("bookTab");
+    }
+  };
+  container.addEventListener("click", playRulebookSound);
+
   const showCardDetail = (event: Event): void => {
     const target = event.target;
     if (!(target instanceof Element)) return;
@@ -3459,7 +3689,12 @@ export function mountBattleScreen(
 
   const playEventSound = (
     event: DomainEvent,
-    stepId = `${event.eventSeq}`
+    stepId = `${event.eventSeq}`,
+    effect: SoundEffect | null = soundEffectForEvent(
+      event,
+      currentView.self?.playerId ?? null,
+      presentation.recentEvents
+    )
   ): void => {
     if (
       event.eventSeq <= mutedSoundEventSeqThrough ||
@@ -3468,7 +3703,7 @@ export function mountBattleScreen(
       return;
     }
     soundedStepIds.add(stepId);
-    sounds.playEvents([event], currentView.self?.playerId ?? null);
+    if (effect) sounds.play(effect);
   };
 
   const playCurrentPresentationSound = (): void => {
@@ -3487,7 +3722,15 @@ export function mountBattleScreen(
     }
     // A staged sale reveal is one declaration, so it sounds once.
     if (step.event.type === "ACTION_DECLARED" && step.stageIndex > 0) return;
-    playEventSound(step.event, step.stepId);
+    playEventSound(
+      step.event,
+      step.stepId,
+      soundEffectForPresentationStep(
+        step,
+        currentView.self?.playerId ?? null,
+        presentation.recentEvents
+      )
+    );
   };
 
   const setPresentation = (next: PresentationQueueState): void => {
@@ -3608,6 +3851,8 @@ export function mountBattleScreen(
       disposed = true;
       stopDeadlineTimer();
       container.removeEventListener("click", playInteractionSound);
+      container.removeEventListener("click", playRulebookSound);
+      container.removeEventListener("mouseover", playHoverSound);
       container.removeEventListener("mouseover", showCardDetail);
       container.removeEventListener("focusin", showCardDetail);
     },
@@ -5642,7 +5887,171 @@ export const BATTLE_SCREEN_STYLES = `
   text-shadow: none;
 }
 
-.gf-action__result[data-result="safe"] {
+/* 夢: a plain orange card with three bright bands above the name. */
+.gf-action__effect[data-calamity="DREAM"] {
+  border-color: #ff9900;
+  color: #444444;
+  background: #ff9900;
+  animation: gf-effect-dream-enter 260ms ease-out var(--gf-effect-delay, 0ms) both;
+}
+
+.gf-action__effect[data-calamity="DREAM"]::before {
+  content: "";
+  justify-self: center;
+  inline-size: 34%;
+  block-size: clamp(10px, 2.4cqi, 26px);
+  margin-block-end: 6%;
+  border-radius: 3px;
+  background: linear-gradient(
+    to bottom,
+    #fff2c0 0 22%,
+    #ff9900 22% 39%,
+    #ffffff 39% 61%,
+    #ff9900 61% 78%,
+    #fff2c0 78% 100%
+  );
+}
+
+.gf-action__effect[data-calamity="DREAM"] strong {
+  font-size: clamp(30px, 7.2cqi, 78px);
+}
+
+.gf-action__effect[data-calamity="DREAM"] span {
+  display: none;
+}
+
+/* The card whose effect is about to resolve blinks orange. */
+.gf-field-card--effect-source {
+  animation: gf-field-card-effect-source 500ms steps(1, end) 2 both;
+}
+
+@keyframes gf-field-card-effect-source {
+  0% {
+    background: #ffb347;
+    box-shadow: 0 0 0 3px #ff9900;
+  }
+
+  50% {
+    background: inherit;
+    box-shadow: none;
+  }
+}
+
+/* 闇: the damage card turns violet, the number stays red. */
+.gf-action__result[data-result="damage"][data-element="DARK"] {
+  border-color: #8a3fc0;
+  color: #cc0000;
+  background: #b768e0;
+  box-shadow: 0 0 22px rgb(90 30 140 / 55%);
+}
+
+.gf-action__result[data-result="damage"][data-element="DARK"] span {
+  color: #4b136f;
+}
+
+/* The field sinks into a blue-violet dusk while dark damage is shown. */
+.gf-battle-screen:has(.gf-action__result[data-element="DARK"]) {
+  background:
+    linear-gradient(rgb(128 134 236 / 88%), rgb(104 108 214 / 92%)),
+    url("/images/goodfield-home.png") center / cover no-repeat,
+    #8d95e6;
+  background-blend-mode: color, normal, normal;
+}
+
+/* ウス: the mortar drops beside the pestle that found it, then blinks. */
+.gf-field-card--mortar {
+  animation:
+    gf-field-card-mortar-drop 200ms ease-out var(--gf-effect-delay, 0ms) both,
+    gf-field-card-effect-source 500ms steps(1, end) 200ms 2 both;
+}
+
+@keyframes gf-field-card-mortar-drop {
+  from {
+    opacity: 0;
+    transform: translateY(-40%);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* 御乱心: orange lettering on white inside a double orange rim. */
+.gf-action__effect[data-effect="confusion"] {
+  top: 22%;
+  left: 24%;
+  inline-size: auto;
+  block-size: auto;
+  padding: 2% 5%;
+  border: 6px solid #ff9900;
+  border-radius: 18px;
+  color: #ff8800;
+  background: #ffffff;
+  box-shadow:
+    inset 0 0 0 4px #ffffff,
+    inset 0 0 0 8px #ffb347,
+    0 8px 18px rgb(0 0 0 / 18%);
+  animation: gf-effect-dream-enter 260ms ease-out var(--gf-effect-delay, 0ms) both;
+}
+
+.gf-action__effect[data-effect="confusion"] strong {
+  font-size: clamp(26px, 5.6cqi, 62px);
+  white-space: nowrap;
+  text-shadow: none;
+}
+
+/* 神器一新: peach card, thick orange rim, wiped in from the left. */
+.gf-action__effect[data-effect="hand-redraw"] {
+  border-color: #ff9900;
+  border-width: 6px;
+  color: #ffffff;
+  background: #ffdcae;
+  animation: gf-effect-redraw-enter 320ms ease-out var(--gf-effect-delay, 0ms) both;
+}
+
+.gf-action__effect[data-effect="hand-redraw"] strong {
+  font-size: clamp(22px, 4.6cqi, 50px);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  text-shadow:
+    -1px -1px 0 #ff9900,
+    1px -1px 0 #ff9900,
+    -1px 1px 0 #ff9900,
+    1px 1px 0 #ff9900;
+}
+
+@keyframes gf-effect-dream-enter {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.86);
+  }
+
+  70% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1.04);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+@keyframes gf-effect-redraw-enter {
+  from {
+    opacity: 0;
+    clip-path: inset(0 100% 0 0 round 20px);
+  }
+
+  to {
+    opacity: 1;
+    clip-path: inset(0 0 0 0 round 20px);
+  }
+}
+
+.gf-action__result[data-result="safe"],
+.gf-action__result[data-result="stopped"] {
   border-color: #009900;
   color: #009900;
   background: #eeffee;
@@ -5690,7 +6099,8 @@ export const BATTLE_SCREEN_STYLES = `
   text-shadow: none;
 }
 
-.gf-action__result[data-result="safe"] strong {
+.gf-action__result[data-result="safe"] strong,
+.gf-action__result[data-result="stopped"] strong {
   font-size: clamp(28px, 5.5556cqi, 60px);
   line-height: 1;
   text-shadow: none;

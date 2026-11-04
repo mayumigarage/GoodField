@@ -756,7 +756,8 @@ test("action UI renders selectable sources, targets, preview values, and an enab
 
   assert.match(html, /data-select-card="screen-bronze"/u);
   assert.match(html, /data-select-card="screen-blowgun"/u);
-  assert.equal(html.match(/data-select-target="/gu)?.length, 2);
+  // Two enemies plus the actor (single-target attacks may be self-aimed).
+  assert.equal(html.match(/data-select-target="/gu)?.length, 3);
   assert.match(html, /<dt>合計攻撃<\/dt>\s*<dd>2<\/dd>/u);
   assert.match(html, /<dt>属性<\/dt>\s*<dd>物理<\/dd>/u);
   assert.match(
@@ -1945,6 +1946,123 @@ test("forgive and calamity follow the recorded combat timing", () => {
   assert.equal(settled.activeStep, null);
 });
 
+test("夢見る帽子 shows 無事, then the orange 夢 card, then 神器一新", () => {
+  const state = createMatch({
+    matchId: "dream-hat-presentation",
+    seed: "dream-hat-presentation-seed",
+    players: [
+      { playerId: "attacker", displayName: "Attacker" },
+      { playerId: "defender", displayName: "Defender" }
+    ]
+  }).state;
+  const actorId = state.activePlayerId;
+  assert.ok(actorId);
+  const targetId = state.turnOrder.find((playerId) => playerId !== actorId);
+  assert.ok(targetId);
+  const baseEvent = {
+    revision: 1,
+    occurredAt: "2026-11-04T00:00:00.000Z",
+    visibility: { scope: "PUBLIC" as const }
+  };
+  const events = [
+    {
+      ...baseEvent,
+      type: "ATTACK_CREATED",
+      eventSeq: 1,
+      attack: {
+        attackId: "dream-attack",
+        reactionId: "dream-reaction",
+        reactionDepth: 0,
+        seriesId: "dream-series",
+        attackNumber: 1,
+        totalAttacks: 1,
+        targetIndex: 0,
+        totalTargets: 1,
+        attackKind: "WEAPON",
+        actorId,
+        targetPlayerId: targetId,
+        sourceCardInstanceIds: ["club-card"],
+        sourceLearnedMiracleIds: [],
+        sourceCardDefinitionIds: ["bronze-club"],
+        element: "PHYSICAL",
+        power: 4,
+        hit: true
+      },
+      actionOwnerId: actorId,
+      targetPlayerIds: [targetId],
+      hitRate: 100,
+      attackerGrantCount: 1,
+      completion: "FINISH_TURN"
+    },
+    {
+      ...baseEvent,
+      type: "REACTION_DECLARED",
+      eventSeq: 2,
+      reactionId: "dream-reaction",
+      playerId: targetId,
+      defenseCardInstanceIds: ["hat-card"],
+      defenseLearnedMiracleIds: [],
+      defenseCardDefinitionIds: ["dreaming-hat"],
+      defenseLearnedMiracleDefinitionIds: [],
+      defensePower: 14,
+      defenseValues: [14]
+    },
+    {
+      ...baseEvent,
+      type: "DAMAGE_APPLIED",
+      eventSeq: 3,
+      attackId: "dream-attack",
+      playerId: targetId,
+      amount: 0,
+      hpAfter: 40
+    },
+    {
+      ...baseEvent,
+      type: "CALAMITY_APPLIED",
+      eventSeq: 4,
+      playerId: targetId,
+      calamity: "DREAM"
+    },
+    {
+      ...baseEvent,
+      type: "HAND_REDRAWN",
+      eventSeq: 5,
+      playerId: targetId,
+      cardCount: 4
+    }
+  ] as DomainEvent[];
+  const view = projectGameView(state, actorId);
+  const ui = synchronizeUiState(initialUiState(), view);
+  let presentation = enqueuePresentationEvents(
+    createPresentationQueue(),
+    events,
+    view,
+    0
+  );
+  const seen: string[] = [];
+  for (let elapsed = 0; elapsed < 12_000; elapsed += 100) {
+    const html = renderBattleScreen(view, ui, {}, presentation);
+    const label = html.includes("<strong>無事</strong>")
+      ? "無事"
+      : /data-calamity="DREAM"[^>]*><strong>夢<\/strong>/u.test(html)
+        ? "夢"
+        : /data-effect="hand-redraw"[^>]*><strong>神器一新<\/strong>/u.test(html)
+          ? "神器一新"
+          : null;
+    if (label !== null && seen.at(-1) !== label) seen.push(label);
+    presentation = advancePresentationClock(presentation, elapsed + 100);
+  }
+  assert.deepEqual(seen, ["無事", "夢", "神器一新"]);
+  assert.match(
+    BATTLE_SCREEN_STYLES,
+    /\.gf-action__effect\[data-calamity="DREAM"\]\s*\{[\s\S]*?background: #ff9900;/u
+  );
+  assert.match(
+    BATTLE_SCREEN_STYLES,
+    /\.gf-action__effect\[data-effect="hand-redraw"\]\s*\{[\s\S]*?border-color: #ff9900;/u
+  );
+});
+
 test("a deflected attack shows the notice, then slides the attack card to the other side", () => {
   const state = createMatch({
     matchId: "deflect-presentation",
@@ -2035,7 +2153,7 @@ test("a deflected attack shows the notice, then slides the attack card to the ot
   const noticePresentation = advancePresentationClock(cardPresentation, 1_000);
   const noticeHtml = renderBattleScreen(view, ui, {}, noticePresentation);
   assert.match(noticeHtml, /class="gf-action__content"\s+data-attack-side="left"/u);
-  assert.match(noticeHtml, /data-result="deflect"\s+data-placement="defense-right"[^>]*>\s*<strong>弾いた<\/strong>/u);
+  assert.match(noticeHtml, /data-result="deflect"\s+data-placement="defense-right"[^>]*>\s*<strong>跳ね返した<\/strong>/u);
   assert.match(noticeHtml, /class="[^"]*gf-field-card--defense/u);
   assert.doesNotMatch(noticeHtml, /data-redirect-move="true"/u);
 

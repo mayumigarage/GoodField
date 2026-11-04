@@ -379,8 +379,18 @@ export function applyEvent(state: MatchState, event: DomainEvent): MatchState {
       return replacePlayer(next, event.playerId, (player) => {
         const calamities = { ...player.calamities };
         for (const calamity of event.calamities) delete calamities[calamity];
-        return { ...player, calamities };
+        // Waking from the dream shows every disguised card's real face.
+        const hand = event.calamities.includes("DREAM")
+          ? player.hand.map((card) =>
+              card.dreamDisguiseCardDefinitionId === null
+                ? card
+                : { ...card, dreamDisguiseCardDefinitionId: null }
+            )
+          : player.hand;
+        return { ...player, calamities, hand };
       });
+    case "HAND_REDRAWN":
+      return next;
     case "ARTIFACT_REMOVED":
       return replacePlayer(next, event.playerId, (player) => ({
         ...player,
@@ -747,6 +757,75 @@ function makeGrantObligation(
   };
 }
 
+// Dream only disguises weapons, armor and goods; trades and miracles always
+// show their real face (godfield-flash `canBeAffectedByIllusion`).
+const DREAM_DISGUISABLE_CATEGORIES: ReadonlySet<CardDefinition["category"]> =
+  new Set(["WEAPON", "ARMOR", "GOODS"]);
+
+// Two cards may stand in for each other only when they are used the same
+// way, so a disguise never changes which actions the owner is offered.
+function dreamUsageSignature(definition: CardDefinition): string {
+  const usages = new Set<string>();
+  for (const instruction of definition.instructions) {
+    if (instruction.kind === "ATTACK") {
+      usages.add(instruction.additive ? "ATTACK:ADDITIVE" : "ATTACK");
+    } else if (instruction.kind === "DEFENSE") {
+      usages.add(`DEFENSE:${definition.element}`);
+    } else if (instruction.kind === "SPECIAL") {
+      usages.add(`SPECIAL:${instruction.operation}`);
+    } else if (instruction.kind === "ADD_CALAMITY") {
+      usages.add(`ADD_CALAMITY:${instruction.timing}`);
+    } else {
+      usages.add(instruction.kind);
+    }
+  }
+  return [definition.category, ...[...usages].sort()].join("|");
+}
+
+/**
+ * A card granted while dreaming shows another card of the same category with
+ * 50% probability. The face is fixed once here and never re-rolled.
+ */
+function drawDreamDisguise(
+  context: EngineContext,
+  definition: CardDefinition
+): string | null {
+  if (!DREAM_DISGUISABLE_CATEGORIES.has(definition.category)) return null;
+  const signature = dreamUsageSignature(definition);
+  const candidates = NORMAL_GRANT_POOL.filter(
+    ({ value }) =>
+      value.cardDefinitionId !== definition.cardDefinitionId &&
+      dreamUsageSignature(value) === signature
+  );
+  if (candidates.length === 0) return null;
+  const disguised = consumeSelection(
+    context,
+    drawWeighted(
+      context.state.rng,
+      [
+        { key: "DISGUISED", weight: 1, value: true },
+        { key: "TRUE_FACE", weight: 1, value: false }
+      ],
+      "DREAM_DISGUISE",
+      context.state.eventSequence + 1
+    )
+  );
+  if (!disguised) return null;
+  return consumeSelection(
+    context,
+    drawWeighted(
+      context.state.rng,
+      candidates.map(({ value }) => ({
+        key: value.cardDefinitionId,
+        weight: 1,
+        value: value.cardDefinitionId
+      })),
+      "DREAM_DISGUISE",
+      context.state.eventSequence + 1
+    )
+  );
+}
+
 function grantStandardArtifact(
   context: EngineContext,
   playerId: string,
@@ -765,7 +844,10 @@ function grantStandardArtifact(
   const card: CardInstance = {
     instanceId: `${context.state.matchId}:card:${context.state.eventSequence + 1}`,
     cardDefinitionId: definition.cardDefinitionId,
-    dreamDisguiseCardDefinitionId: null
+    dreamDisguiseCardDefinitionId:
+      player.calamities.DREAM === true
+        ? drawDreamDisguise(context, definition)
+        : null
   };
   emit(
     context,
@@ -1664,11 +1746,12 @@ function transferTradeCard(
 ): void {
   const previousRecipientCardIds =
     context.state.players[toPlayerId]?.hand.map(({ instanceId }) => instanceId) ?? [];
+  // A traded card leaves the dreamer's hand and shows its real face.
   emit(context, {
     type: "CARD_TRANSFERRED",
     fromPlayerId,
     toPlayerId,
-    card
+    card: { ...card, dreamDisguiseCardDefinitionId: null }
   });
   const recipient = context.state.players[toPlayerId];
   if (recipient && recipient.hand.length > MAX_HAND_SIZE) {
@@ -2876,6 +2959,9 @@ function applyCalamityEffect(
   const player = context.state.players[playerId];
   if (!player?.alive) return;
   if (!DISEASE_ORDER.includes(calamity)) {
+    // Re-dreaming changes nothing and shows nothing: a dreamer using
+    // 夢見る帽子 goes straight from 無事 to 神器一新 (original recording).
+    if (calamity === "DREAM" && player.calamities.DREAM === true) return;
     emit(context, { type: "CALAMITY_APPLIED", playerId, calamity });
     return;
   }
@@ -3036,7 +3122,9 @@ function removeRandomArtifacts(
         type: "ARTIFACT_REMOVED",
         playerId,
         cardInstanceId: selected.instanceId,
-        cardDefinitionId: selected.cardDefinitionId,
+        // Owner-only record: a dream disguise stays a disguise.
+        cardDefinitionId:
+          selected.dreamDisguiseCardDefinitionId ?? selected.cardDefinitionId,
         reason
       },
       playerVisibility(playerId)
@@ -3088,6 +3176,12 @@ function redrawArtifactHand(
   ].sort((left, right) =>
     left.instanceId.localeCompare(right.instanceId)
   );
+  // Public 「神器一新」 notice; the removed and granted faces stay private.
+  emit(context, {
+    type: "HAND_REDRAWN",
+    playerId,
+    cardCount: cards.length
+  });
   for (const card of cards) {
     emit(
       context,
@@ -3095,7 +3189,8 @@ function redrawArtifactHand(
         type: "ARTIFACT_REMOVED",
         playerId,
         cardInstanceId: card.instanceId,
-        cardDefinitionId: card.cardDefinitionId,
+        cardDefinitionId:
+          card.dreamDisguiseCardDefinitionId ?? card.cardDefinitionId,
         reason: "HAND_REDRAW"
       },
       playerVisibility(playerId)
@@ -3292,6 +3387,19 @@ function automaticActionCandidates(
     candidates.push({ key: "PRAY", type: "PRAY" });
   }
   return candidates;
+}
+
+/** Recovery items (HP/MP boost, curse removal) may be used on any living player. */
+export function isSupportiveDirectAction(definition: CardDefinition): boolean {
+  return (
+    definition.instructions.length > 0 &&
+    definition.instructions.every(
+      (instruction) =>
+        ((instruction.kind === "BOOST_HP" || instruction.kind === "BOOST_MP") &&
+          instruction.amount > 0) ||
+        instruction.kind === "REMOVE_CALAMITIES"
+    )
+  );
 }
 
 function directEffectTargetsEnemy(definition: CardDefinition): boolean {
@@ -3995,6 +4103,7 @@ function resolveDirectInstructions(
   definition: CardDefinition
 ): void {
   let instructions = definition.instructions;
+  const supportive = isSupportiveDirectAction(definition);
   if (definition.cardDefinitionId === "thump-thump-tear") {
     const outcome = consumeSelection(
       context,
@@ -4018,7 +4127,8 @@ function resolveDirectInstructions(
       instruction.kind === "BOOST_MP" ||
       instruction.kind === "BOOST_MONEY"
     ) {
-      const player = context.state.players[actorPlayerId];
+      const boostedId = supportive ? targetPlayerId : actorPlayerId;
+      const player = context.state.players[boostedId];
       if (!player) continue;
       const resource =
         instruction.kind === "BOOST_HP"
@@ -4034,7 +4144,7 @@ function resolveDirectInstructions(
             : player.money;
       emit(context, {
         type: "RESOURCE_CHANGED",
-        playerId: actorPlayerId,
+        playerId: boostedId,
         resource,
         delta: instruction.amount,
         valueAfter: clampResource(current + instruction.amount),
@@ -4058,7 +4168,7 @@ function resolveDirectInstructions(
     } else if (instruction.kind === "REMOVE_CALAMITIES") {
       removeCalamities(
         context,
-        actorPlayerId,
+        supportive ? targetPlayerId : actorPlayerId,
         instruction.scope
       );
     } else if (instruction.kind === "DEAL_DAMAGE") {
@@ -4135,13 +4245,17 @@ function handleDirectAction(
     return fail(context.state, "INSUFFICIENT_MP", "Not enough MP for this miracle");
   }
   const targetsEnemy = directEffectTargetsEnemy(definition);
+  const supportive = isSupportiveDirectAction(definition);
   const target = targetsEnemy
     ? context.state.players[command.targetPlayerId]
-    : actor;
+    : supportive
+      ? context.state.players[command.targetPlayerId]
+      : actor;
   if (
     !target ||
     (targetsEnemy && !isEnemy(actor, target)) ||
-    (!targetsEnemy && command.targetPlayerId !== actor.playerId)
+    (supportive && !target.alive) ||
+    (!targetsEnemy && !supportive && command.targetPlayerId !== actor.playerId)
   ) {
     return fail(context.state, "INVALID_TARGET", "Direct-use target is not legal");
   }
@@ -4150,7 +4264,8 @@ function handleDirectAction(
     type: "ACTION_DECLARED",
     playerId: actor.playerId,
     actionType: command.type,
-    targetPlayerId: targetsEnemy ? target.playerId : actor.playerId,
+    targetPlayerId:
+      targetsEnemy || supportive ? target.playerId : actor.playerId,
     actionCardDefinitionIds: sources.map(
       ({ definition }) => definition.cardDefinitionId
     )
@@ -4193,7 +4308,7 @@ function handleDirectAction(
     });
   }
 
-  if (targetsEnemy) {
+  if (targetsEnemy || (supportive && target.playerId !== actor.playerId)) {
     startTargetedCardReaction(context, {
       seriesId: command.commandId,
       actionOwnerId: actor.playerId,
@@ -4336,8 +4451,24 @@ function handleDeclareAction(
     ({ definition }) => definition.cardDefinitionId === "dangerous-pestle"
   );
   const target = context.state.players[command.targetPlayerId];
-  if (!throwsDangerousPestle && (!target || !isEnemy(actor, target))) {
-    return fail(context.state, "INVALID_TARGET", "Target must be a living enemy");
+  const attacksEveryEnemy = sources.some(
+    ({ definition }) =>
+      instructionsOfKind(definition, "HIT_RATE").length > 0 ||
+      hasSpecialEffect(definition, "ATTACK_EVERY_ENEMY")
+  );
+  // A single-target attack may be aimed at the actor; `%` (hit-rate) and
+  // every-enemy attacks never take a chosen target, so self never applies.
+  const mayTargetSelf = !attacksEveryEnemy;
+  const targetIsLegal =
+    target !== undefined &&
+    (isEnemy(actor, target) ||
+      (mayTargetSelf && target.playerId === actor.playerId && target.alive));
+  if (!throwsDangerousPestle && !targetIsLegal) {
+    return fail(
+      context.state,
+      "INVALID_TARGET",
+      "Target must be a living enemy or the actor for a single-target attack"
+    );
   }
   const attacks = sources.map(({ definition }) =>
     instructionsOfKind(definition, "ATTACK")[0]
@@ -4440,12 +4571,6 @@ function handleDeclareAction(
   const enemyCandidates = Object.values(context.state.players)
     .filter((candidate) => isEnemy(actor, candidate))
     .sort((left, right) => left.seat - right.seat);
-  const attacksEveryEnemy =
-    sources.some(
-      ({ definition }) =>
-        instructionsOfKind(definition, "HIT_RATE").length > 0 ||
-        hasSpecialEffect(definition, "ATTACK_EVERY_ENEMY")
-    );
   let targetPlayerIds: string[];
   if (throwsDangerousPestle) {
     // The pestle falls on one random living player (the user included);
@@ -4792,23 +4917,28 @@ function handleReaction(
       });
     }
   }
-  for (const { definition } of cards) {
-    for (const instruction of instructionsOfKind(
-      definition,
-      "ADD_CALAMITY"
-    )) {
-      if (instruction.timing === "SELF") {
-        applyCalamityEffect(
-          context,
-          command.actorId,
-          instruction.calamity
-        );
+  // Self effects of the defense (夢見る帽子: 夢 and 神器一新) resolve after the
+  // attack's outcome is shown, as in the original: 無事 → 夢 → 神器一新.
+  const applySelfDefenseEffects = (): void => {
+    if (!context.state.players[command.actorId]?.alive) return;
+    for (const { definition } of cards) {
+      for (const instruction of instructionsOfKind(
+        definition,
+        "ADD_CALAMITY"
+      )) {
+        if (instruction.timing === "SELF") {
+          applyCalamityEffect(
+            context,
+            command.actorId,
+            instruction.calamity
+          );
+        }
+      }
+      if (hasSpecialEffect(definition, "REDRAW_HAND")) {
+        redrawArtifactHand(context, command.actorId);
       }
     }
-    if (hasSpecialEffect(definition, "REDRAW_HAND")) {
-      redrawArtifactHand(context, command.actorId);
-    }
-  }
+  };
   for (const { miracle, definition } of learnedDefinitions) {
     emit(context, {
       type: "MIRACLE_CAST",
@@ -4837,10 +4967,12 @@ function handleReaction(
       attackId: pending.attack.attackId,
       playerId: command.actorId
     });
+    applySelfDefenseEffects();
     advanceAfterAttackStep(context, committedPending);
     return null;
   }
   if (effect === "REFLECT" || effect === "BOUNCE") {
+    applySelfDefenseEffects();
     if (pending.attack.reactionDepth >= MAX_REACTION_CHAIN_DEPTH) {
       emit(context, {
         type: "REACTION_CHAIN_ABORTED",
@@ -4924,6 +5056,7 @@ function handleReaction(
           command.actorId,
           totalDefense
         );
+  applySelfDefenseEffects();
   if (pending.attack.attackKind !== "TARGETED_CARD") {
     if (startCounterReaction(
       context,

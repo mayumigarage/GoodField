@@ -4,6 +4,7 @@ import type {
   GameViewState
 } from "../../shared/src/protocol.ts";
 import { renderSoundControl } from "./sound-control.ts";
+import { SoundEffectPlayer } from "./sound-effects.ts";
 
 export type OnlineRoomSeat = {
   seatIndex: number;
@@ -439,6 +440,7 @@ export function mountOnlineLobby(
   let timer: ReturnType<typeof setTimeout> | null = null;
   let disposed = false;
   let busy = false;
+  const sounds = new SoundEffectPlayer();
 
   const report = (error: unknown): void => {
     options.onError?.(
@@ -676,6 +678,10 @@ export function mountOnlineLobby(
         if (!options.passphrase) return;
         void clipboard.writeText(options.passphrase).catch(report);
       }
+    );
+    root.querySelector("[data-entry-toggle]")?.addEventListener(
+      "mouseenter",
+      () => sounds.play("entryToggleOver")
     );
     root.querySelector("[data-entry-toggle]")?.addEventListener(
       "click",

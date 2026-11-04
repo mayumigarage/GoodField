@@ -1107,10 +1107,14 @@ export function defenseCardStatus(
   const selectable =
     current.mode === "COMPOSING_REACTION" &&
     reactionCardAvailable(current, view, reaction, cardInstanceId);
+  const filterOnly = (reaction?.filterOnlyCardInstanceIds ?? []).includes(
+    cardInstanceId
+  );
   return {
     selectable,
     selected,
-    invalidReason: selectable ? null : "この攻撃の防御には使用できません"
+    invalidReason:
+      selectable || filterOnly ? null : "この攻撃の防御には使用できません"
   };
 }
 
@@ -1132,10 +1136,14 @@ export function defenseMiracleStatus(
   const selectable =
     current.mode === "COMPOSING_REACTION" &&
     reactionMiracleAvailable(current, view, reaction, learnedMiracleId);
+  const filterOnly = (reaction?.filterOnlyLearnedMiracleIds ?? []).includes(
+    learnedMiracleId
+  );
   return {
     selectable,
     selected,
-    invalidReason: selectable ? null : "この攻撃の防御には使用できません"
+    invalidReason:
+      selectable || filterOnly ? null : "この攻撃の防御には使用できません"
   };
 }
 
@@ -1149,6 +1157,9 @@ export function selectDefenseCard(
   }
   const reaction = declareReaction(view);
   if (!reaction || !reactionCardAvailable(current, view, reaction, cardInstanceId)) {
+    if ((reaction?.filterOnlyCardInstanceIds ?? []).includes(cardInstanceId)) {
+      return current;
+    }
     return {
       ...current,
       selectionInvalidReason: "この神器は今回の防御には使用できません"
@@ -1195,6 +1206,11 @@ export function selectDefenseMiracle(
   }
   const reaction = declareReaction(view);
   if (!reactionMiracleAvailable(current, view, reaction, learnedMiracleId)) {
+    if (
+      (reaction?.filterOnlyLearnedMiracleIds ?? []).includes(learnedMiracleId)
+    ) {
+      return current;
+    }
     return {
       ...current,
       selectionInvalidReason: "この奇跡は今回の防御には使用できません"

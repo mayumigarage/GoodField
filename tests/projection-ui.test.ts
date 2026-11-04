@@ -477,7 +477,8 @@ test("action composition replaces the primary source, keeps additive sources, an
     attackPower: 4,
     element: "PHYSICAL",
     requiredMp: 2,
-    targetPlayerIds: [firstTarget, otherTarget],
+    // Single-target attacks list the actor last so they can be self-aimed.
+    targetPlayerIds: [firstTarget, otherTarget, actorId],
     canSubmit: true,
     invalidReason: null
   });

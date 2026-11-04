@@ -26,6 +26,13 @@ export type PresentationTimingProfile = {
 };
 
 export const DANGEROUS_PESTLE_HOLD_MS = 2_000;
+// Measured on the original recording (2026-11-04): the orange 夢 card stays
+// ~1.7 s; 夢見る帽子 flashes ~1 s before 「神器一新」 holds ~1.9 s.
+export const DREAM_NOTICE_HOLD_MS = 1_700;
+export const HAND_REDRAW_LEAD_MS = 1_000;
+export const HAND_REDRAW_HOLD_MS = 1_900;
+// The original 御乱心 badge stays up for ~1.5 s before the first confused act.
+export const CONFUSION_NOTICE_HOLD_MS = 1_500;
 
 export const OFFICIAL_WEB_2026_07_25: PresentationTimingProfile = {
   profileId: "OFFICIAL_WEB_2026_07_25",
@@ -288,6 +295,14 @@ function definitionsForEvent(
         profile.attackStageMs,
         "REACTION"
       );
+    case "ATTACK_STOPPED":
+      // A wall-style block: show the "stopped" notice like a damage result.
+      return [
+        {
+          kind: "DAMAGE_RESULT",
+          durationMs: profile.attackResultMs
+        }
+      ];
     case "DAMAGE_APPLIED":
       return [
         {
@@ -378,6 +393,12 @@ function definitionsForEvent(
           durationMs: profile.resolutionHoldMs
         }
       ];
+    case "ASCENSION_BOW_TRIGGERED":
+      // The dying player's 昇天弓 appears, then its 75% roll is shown.
+      return [
+        { kind: "ASCENSION", durationMs: profile.attackStageMs },
+        { kind: "ASCENSION", durationMs: profile.hitResultMs }
+      ];
     case "PLAYER_ASCENDED":
       return [
         {
@@ -416,14 +437,32 @@ function definitionsForEvent(
     case "GUARDIAN_ACTION_SELECTED":
       return [{ kind: "GUARDIAN", durationMs: profile.stageGapMs }];
     case "CALAMITY_APPLIED":
+      return [
+        {
+          kind: "CALAMITY",
+          durationMs:
+            event.calamity === "DREAM"
+              ? DREAM_NOTICE_HOLD_MS
+              : profile.attackStageMs
+        }
+      ];
     case "CALAMITY_WORSENED":
       return [{ kind: "CALAMITY", durationMs: profile.attackStageMs }];
+    case "HAND_REDRAWN":
+      // Stage 0 flashes the defense card, stage 1 shows 「神器一新」.
+      return [
+        { kind: "CALAMITY", durationMs: HAND_REDRAW_LEAD_MS },
+        { kind: "CALAMITY", durationMs: HAND_REDRAW_HOLD_MS }
+      ];
     case "CALAMITIES_REMOVED":
     case "CALAMITY_WORSEN_CHECKED":
       return [{ kind: "CALAMITY", durationMs: profile.stageGapMs }];
+    case "CONFUSION_ACTIONS_STARTED":
+      return [
+        { kind: "AUTOMATIC_EFFECT", durationMs: CONFUSION_NOTICE_HOLD_MS }
+      ];
     case "POST_TURN_AUTOMATIC_EFFECTS_COMPLETED":
     case "PHENOMENON_SELECTED":
-    case "CONFUSION_ACTIONS_STARTED":
     case "CONFUSION_ACTION_SELECTED":
     case "CONFUSION_ACTION_COMPLETED":
     case "CONFUSION_ACTIONS_COMPLETED":

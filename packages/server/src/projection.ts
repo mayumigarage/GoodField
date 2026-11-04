@@ -24,6 +24,7 @@ import {
   hasCounterOrFilterEffect,
   isDiscardableDefinition,
   isSupportedDirectAction,
+  isSupportiveDirectAction,
   reactionEffectFor
 } from "./engine.ts";
 
@@ -310,6 +311,29 @@ export function legalActionsFor(
     .filter((target) => isEnemy(player, target))
     .sort((left, right) => left.seat - right.seat)
     .map(({ playerId: targetId }) => targetId);
+  const supportiveTargetPlayerIds = Object.values(state.players)
+    .filter((target) => target.alive)
+    .sort((left, right) => {
+      if (left.playerId === playerId) return -1;
+      if (right.playerId === playerId) return 1;
+      return left.seat - right.seat;
+    })
+    .map(({ playerId: targetId }) => targetId);
+  // Single-target attacks (weapons, miracles, ...) may also be aimed at the
+  // actor; `%` (hit-rate) and every-enemy attacks never take a chosen target.
+  const attackTargetsFor = (definition: CardDefinition): string[] =>
+    instructionsOfKind(definition, "HIT_RATE").length > 0 ||
+    instructionsOfKind(definition, "SPECIAL").some(
+      (instruction) => instruction.operation === "ATTACK_EVERY_ENEMY"
+    )
+      ? targetPlayerIds
+      : [...targetPlayerIds, playerId];
+  const directTargetsFor = (definition: CardDefinition): string[] =>
+    isSupportiveDirectAction(definition)
+      ? supportiveTargetPlayerIds
+      : directActionTargetsEnemy(definition)
+        ? targetPlayerIds
+        : [playerId];
   const additiveCardInstanceIds = player.hand
     .filter((card) => {
       const definition = definitionFor(card);
@@ -372,7 +396,7 @@ export function legalActionsFor(
           )
         ],
         additiveLearnedMiracleIds,
-        targetPlayerIds
+        targetPlayerIds: attackTargetsFor(definition)
       });
     } else if (
       isSupportedDirectAction(definition) &&
@@ -395,9 +419,7 @@ export function legalActionsFor(
             ? minimum.additiveCardInstanceIds
             : [],
         additiveLearnedMiracleIds: [],
-        targetPlayerIds: directActionTargetsEnemy(definition)
-          ? targetPlayerIds
-          : [playerId]
+        targetPlayerIds: directTargetsFor(definition)
       });
     } else if (definition.cardDefinitionId === "exchange") {
       actions.push({
@@ -459,7 +481,7 @@ export function legalActionsFor(
           )
         ],
         additiveLearnedMiracleIds,
-        targetPlayerIds
+        targetPlayerIds: attackTargetsFor(definition)
       });
     } else if (
       definition !== undefined &&
@@ -479,9 +501,7 @@ export function legalActionsFor(
         learnedMiracleIds: [miracle.learnedMiracleId],
         additiveCardInstanceIds: minimum.additiveCardInstanceIds,
         additiveLearnedMiracleIds: [],
-        targetPlayerIds: directActionTargetsEnemy(definition)
-          ? targetPlayerIds
-          : [playerId]
+        targetPlayerIds: directTargetsFor(definition)
       });
     }
   }

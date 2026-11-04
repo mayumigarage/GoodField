@@ -126,9 +126,18 @@ function commandForAction(
     case "SURRENDER":
       return { ...base, type: action.type };
     case "DECLARE_ACTION": {
+      // Recovery/supportive lists put the actor first and CPUs always apply
+      // them to themselves. Attack lists append the actor (self-targeting is
+      // legal for humans) after the enemies; CPUs never attack themselves.
+      const candidateTargetIds =
+        action.targetPlayerIds[0] === base.actorId
+          ? [base.actorId]
+          : action.targetPlayerIds.filter(
+              (playerId) => playerId !== base.actorId
+            );
       const targetPlayerId = selectOne(
         cursor,
-        action.targetPlayerIds,
+        candidateTargetIds,
         (playerId) => playerId
       );
       if (!targetPlayerId) return null;

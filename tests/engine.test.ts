@@ -1839,6 +1839,62 @@ test("a guardian can depart after its host loses HP", () => {
   );
 });
 
+test("a single-target attack may be aimed at the actor but a % weapon may not", () => {
+  const setup = withHands(
+    createTwoPlayerMatch("self-attack").state,
+    [card("weapon", "god-sword"), card("spark-bag", "spark-bag")],
+    []
+  );
+  const view = projectGameView(setup.state, setup.actorId);
+  const declares = view.self?.legalActions.filter(
+    (action) => action.type === "DECLARE_ACTION"
+  );
+  const swordAction = declares?.find(
+    (action) =>
+      action.type === "DECLARE_ACTION" &&
+      action.cardInstanceIds.includes("weapon")
+  );
+  const sparkAction = declares?.find(
+    (action) =>
+      action.type === "DECLARE_ACTION" &&
+      action.cardInstanceIds.includes("spark-bag")
+  );
+  assert.deepEqual(
+    swordAction?.type === "DECLARE_ACTION" && swordAction.targetPlayerIds,
+    [setup.targetId, setup.actorId]
+  );
+  assert.deepEqual(
+    sparkAction?.type === "DECLARE_ACTION" && sparkAction.targetPlayerIds,
+    [setup.targetId]
+  );
+
+  const hpBefore = setup.state.players[setup.actorId]!.hp;
+  const selfAttack = handleCommand(setup.state, {
+    type: "DECLARE_ACTION",
+    matchId: setup.state.matchId,
+    commandId: "self-attack",
+    actorId: setup.actorId,
+    expectedRevision: setup.state.revision,
+    cardInstanceIds: ["weapon"],
+    targetPlayerId: setup.actorId
+  });
+  assert.equal(selfAttack.ok, true);
+  if (!selfAttack.ok) return;
+  assert.ok(selfAttack.state.players[setup.actorId]!.hp < hpBefore);
+
+  const percentSelf = handleCommand(setup.state, {
+    type: "DECLARE_ACTION",
+    matchId: setup.state.matchId,
+    commandId: "percent-self-attack",
+    actorId: setup.actorId,
+    expectedRevision: setup.state.revision,
+    cardInstanceIds: ["spark-bag"],
+    targetPlayerId: setup.actorId
+  });
+  assert.equal(percentSelf.ok, false);
+  if (!percentSelf.ok) assert.equal(percentSelf.code, "INVALID_TARGET");
+});
+
 test("flash limits a reaction to one defense card", () => {
   const setup = withHands(
     createTwoPlayerMatch("flash-defense").state,
@@ -3730,4 +3786,53 @@ test("mushroom phenomenon schedules three seat-order rounds and increments GF pe
     ),
     true
   );
+});
+
+test("recovery items used on another player open a reaction the target can allow", () => {
+  const setup = withHands(
+    createTwoPlayerMatch("goods-heal-other").state,
+    [card("dew", "smile-dew")],
+    []
+  );
+  const state: MatchState = {
+    ...setup.state,
+    players: {
+      ...setup.state.players,
+      [setup.targetId]: {
+        ...setup.state.players[setup.targetId]!,
+        hp: 30
+      }
+    }
+  };
+  const actorHpBefore = state.players[setup.actorId]!.hp;
+  const declared = handleCommand(state, {
+    type: "DECLARE_ACTION",
+    matchId: state.matchId,
+    commandId: "heal-other",
+    actorId: setup.actorId,
+    expectedRevision: state.revision,
+    cardInstanceIds: ["dew"],
+    targetPlayerId: setup.targetId
+  });
+  assert.equal(declared.ok, true);
+  if (!declared.ok) return;
+  assert.equal(declared.state.phase, "REACTION_SELECTION");
+  assert.equal(declared.state.players[setup.targetId]?.hp, 30);
+  const reactionId =
+    declared.state.pendingAction?.kind === "ATTACK"
+      ? declared.state.pendingAction.attack.reactionId
+      : "";
+  const allowed = handleCommand(declared.state, {
+    type: "DECLARE_REACTION",
+    matchId: declared.state.matchId,
+    commandId: "allow-heal",
+    actorId: setup.targetId,
+    expectedRevision: declared.state.revision,
+    reactionId,
+    defenseCardInstanceIds: []
+  });
+  assert.equal(allowed.ok, true);
+  if (!allowed.ok) return;
+  assert.equal(allowed.state.players[setup.targetId]?.hp, 35);
+  assert.equal(allowed.state.players[setup.actorId]?.hp, actorHpBefore);
 });

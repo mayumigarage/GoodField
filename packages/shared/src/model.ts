@@ -374,6 +374,12 @@ export type DomainEvent =
       calamities: Calamity[];
     })
   | (DomainEventBase & {
+      /** 「神器一新」: the player's whole hand is discarded and re-granted. */
+      type: "HAND_REDRAWN";
+      playerId: string;
+      cardCount: number;
+    })
+  | (DomainEventBase & {
       type: "ARTIFACT_REMOVED";
       playerId: string;
       cardInstanceId: string;
