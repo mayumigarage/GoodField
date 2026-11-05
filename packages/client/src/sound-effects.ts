@@ -5,14 +5,11 @@ import { soundVolume } from "./sound-control.ts";
 
 export const SOUND_EFFECT_FILES = {
   alert: "alert.mp3",
-  assistant: "assistant.mp3",
   assistantAdd: "assistant_add.mp3",
   assistantRemove: "assistant_remove.mp3",
   block: "block.mp3",
   bookTab: "book_tab_down.mp3",
-  bookTabOver: "book_tab_over.mp3",
   button: "button_down.mp3",
-  buttonOver: "button_over.mp3",
   card: "card.mp3",
   clientTurn: "client_turn.mp3",
   counter: "counter.mp3",
@@ -23,14 +20,14 @@ export const SOUND_EFFECT_FILES = {
   disease: "disease.mp3",
   draw: "game_draw.mp3",
   dyingAttack: "dying_attack.mp3",
-  entryToggleOver: "entry_toggle_over.mp3",
   exchange: "exchange.mp3",
   flick: "flick.mp3",
   gameStart: "game_start.mp3",
   harmAdd: "harm_add.mp3",
   harmRemove: "harm_remove.mp3",
   healHp: "hp_increase.mp3",
-  healMp: "mp_increase.mp3",
+  // The effect recording's 22.MP回復 is assistant.mp3, not mp_increase.mp3.
+  healMp: "assistant.mp3",
   hit: "hit.mp3",
   illusionItem: "illusion_item.mp3",
   itemRemove: "item_remove.mp3",
@@ -224,8 +221,6 @@ export function soundEffectForEvent(
       return "assistantAdd";
     case "GUARDIAN_DEPARTED":
       return "assistantRemove";
-    case "GUARDIAN_ACTION_SELECTED":
-      return "assistant";
     case "DEMON_APPEARED":
     case "PHENOMENON_SELECTED":
       return "mystery";

@@ -290,7 +290,7 @@ test("counter damage and the ascension bow's arrow sound differently", () => {
   );
 });
 
-test("every shipped sound file is mapped except the unverified countdown", () => {
+test("every mapped sound ships, and unused files are the known leftovers", () => {
   const shipped = readdirSync(
     new URL("../packages/client/public/sounds/", import.meta.url)
   ).filter((name) => name.endsWith(".mp3"));
@@ -300,7 +300,15 @@ test("every shipped sound file is mapped except the unverified countdown", () =>
   }
   assert.deepEqual(
     shipped.filter((name) => !mapped.has(name)),
-    ["game_start_number.mp3"]
+    [
+      // Hover sounds are not wanted.
+      "book_tab_over.mp3",
+      "button_over.mp3",
+      "entry_toggle_over.mp3",
+      // Not heard anywhere in the effect recording.
+      "game_start_number.mp3",
+      "mp_increase.mp3"
+    ]
   );
 });
 

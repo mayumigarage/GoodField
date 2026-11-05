@@ -3638,32 +3638,6 @@ export function mountBattleScreen(
   };
   container.addEventListener("click", playInteractionSound);
 
-  // Each control sounds once as the pointer reaches it. Renders replace the
-  // DOM under a resting pointer, so controls are told apart by their markup
-  // rather than by element identity.
-  let hoveredControlKey: string | null = null;
-  const playHoverSound = (event: MouseEvent): void => {
-    const target = event.target;
-    if (!(target instanceof Element)) return;
-    const control = target.closest<HTMLElement>(
-      "button, [data-rulebook-link]"
-    );
-    const key = control
-      ? `${control.getAttributeNames()
-          .map((name) => `${name}=${control.getAttribute(name) ?? ""}`)
-          .join("&")}|${control.textContent ?? ""}`
-      : null;
-    if (key === hoveredControlKey) return;
-    hoveredControlKey = key;
-    if (!control || (control instanceof HTMLButtonElement && control.disabled)) {
-      return;
-    }
-    sounds.play(
-      control.matches("[data-rulebook-link]") ? "bookTabOver" : "buttonOver"
-    );
-  };
-  container.addEventListener("mouseover", playHoverSound);
-
   const playRulebookSound = (event: MouseEvent): void => {
     if (
       event.target instanceof Element &&
@@ -3852,7 +3826,6 @@ export function mountBattleScreen(
       stopDeadlineTimer();
       container.removeEventListener("click", playInteractionSound);
       container.removeEventListener("click", playRulebookSound);
-      container.removeEventListener("mouseover", playHoverSound);
       container.removeEventListener("mouseover", showCardDetail);
       container.removeEventListener("focusin", showCardDetail);
     },
